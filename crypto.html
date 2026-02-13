@@ -813,8 +813,8 @@
         
         function formatDate(dateStr) {
             if (!dateStr) return '';
-            const d = new Date(dateStr);
-            return d.toLocaleDateString();
+            const d = new Date(dateStr + 'Z');
+            return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
         
         async function encryptAndUpload() {

@@ -493,6 +493,135 @@ python3 upload.py /keys/agent-a.env data.json "..."
 python3 upload.py /keys/agent-b.env data.json "..."</code></pre>
     </div>
 
+    <h2>Backup Client (vault-backup)</h2>
+
+    <div class="section">
+        <p>Smart backup client that <strong>skips unchanged files</strong> using MD5 checksums. Computes MD5 of plaintext before encryption, checks the server index, and only uploads new or modified files.</p>
+    </div>
+
+    <h3>How It Works</h3>
+    <div class="diagram">
+┌────────────────────────────────────────────────────────────────┐
+│                     BACKUP FLOW                                │
+├────────────────────────────────────────────────────────────────┤
+│                                                                │
+│  For each local file:                                          │
+│                                                                │
+│  1. Read file ──► MD5(plaintext) ──► "a1b2c3d4..."            │
+│                                                                │
+│  2. GET /index/checksums?pubkey=...                            │
+│     ┌──────────────────────────────┐                           │
+│     │ server.js  md5:d38de5ec...  │ ◄── already indexed       │
+│     │ config.json md5:a1b2c3d4... │                            │
+│     └──────────────────────────────┘                           │
+│                                                                │
+│  3. Compare local MD5 against server index:                    │
+│     • Match found  ──► SKIP (no upload)                        │
+│     • No match     ──► Encrypt ──► Upload ──► Index            │
+│                                                                │
+│  Result: Only new/changed files are uploaded                   │
+└────────────────────────────────────────────────────────────────┘
+    </div>
+
+    <h3>Installation</h3>
+    <pre><code># Clone and install (tweetnacl + bs58 required)
+cd /path/to/ipfs-web
+npm install
+
+# Store your wallet private key (Base58)
+echo "YourBase58PrivateKey..." > .wallet-key
+chmod 600 .wallet-key</code></pre>
+
+    <h3>Usage</h3>
+    <pre><code># Backup specific files
+node vault-backup.js notes.md config.json data/*.csv
+
+# Backup an entire directory (recursive, skips .git, node_modules, dotfiles)
+node vault-backup.js --dir ~/projects/myapp/
+
+# Dry run — see what would be uploaded without uploading
+node vault-backup.js --dry-run --dir ~/documents/
+
+# Use a different server
+node vault-backup.js --server https://vault.x1.xyz myfile.txt
+
+# Use a different key file
+node vault-backup.js --key ~/.agent-wallet.env myfile.txt</code></pre>
+
+    <h3>Output</h3>
+    <pre><code>Wallet: 2jchoLFV...RbDRy3
+Server: http://127.0.0.1:8772
+
+Remote: 285 files indexed (142 unique names)
+Local:  5 files to process
+
+[1/5] SKIP  notes.md (unchanged, md5:e4de7cc3fc)
+[2/5] UP    config.json → QmXxx...abc (md5:a1b2c3d4e5)
+[3/5] NEW   readme.txt → QmYyy...def (md5:f6g7h8i9j0)
+[4/5] SKIP  data.csv (unchanged, md5:1234567890)
+[5/5] UP    app.js → QmZzz...ghi (md5:k1l2m3n4o5)
+
+Done: 3 uploaded, 2 skipped, 0 failed (of 5)</code></pre>
+    <table>
+        <tr><th>Label</th><th>Meaning</th></tr>
+        <tr><td><code>NEW</code></td><td>File not previously on server — first upload</td></tr>
+        <tr><td><code>UP</code></td><td>File exists but content changed — new version uploaded</td></tr>
+        <tr><td><code>SKIP</code></td><td>File unchanged (same MD5) — no upload needed</td></tr>
+        <tr><td><code>FAIL</code></td><td>Upload error (network, IPFS down, etc.)</td></tr>
+    </table>
+
+    <h3>Dedup via X-Content-MD5</h3>
+    <p>The backup client sends the <code>X-Content-MD5</code> header with every upload. This is the MD5 of the <strong>plaintext before encryption</strong>. The server stores it in the index database.</p>
+    <p>On subsequent runs, the client fetches <code>/index/checksums</code> and compares each local file's MD5 against the server. Since the MD5 is of the plaintext (not the ciphertext), identical files always match — even though each encryption produces different ciphertext due to random IVs.</p>
+    <pre><code>// Client-side dedup logic (simplified)
+const content = fs.readFileSync('myfile.txt');
+const md5 = crypto.createHash('md5').update(content).digest('hex');
+
+const remote = await fetch('/index/checksums?pubkey=...');
+const existing = remote.files.find(f =>
+    f.filename.endsWith('myfile.txt') && f.md5 === md5
+);
+
+if (existing) {
+    console.log('SKIP — unchanged');
+} else {
+    // encrypt, upload with X-Content-MD5 header
+}</code></pre>
+
+    <h3>Integrating Into Your Own Client</h3>
+    <p>Any client (Node.js, Python, Go, etc.) can implement the same dedup pattern:</p>
+    <ol>
+        <li>Compute <code>MD5(plaintext)</code> before encryption</li>
+        <li>Check <code>GET /index/checksums?pubkey=X</code> for matching filename + MD5</li>
+        <li>If match → skip. If no match → encrypt, upload with <code>X-Content-MD5</code> header</li>
+    </ol>
+
+    <pre><code># Python example
+import hashlib, requests
+
+def backup_file(server, pubkey, filepath, aes_key):
+    with open(filepath, 'rb') as f:
+        content = f.read()
+    md5 = hashlib.md5(content).hexdigest()
+
+    # Check server index
+    checksums = requests.get(f'{server}/index/checksums?pubkey={pubkey}').json()
+    filename = os.path.basename(filepath)
+    for f in checksums['files']:
+        clean = f['filename'].split('-', 1)[1] if '-' in f['filename'] else f['filename']
+        if clean == filename and f['md5'] == md5:
+            print(f'SKIP {filename} (unchanged)')
+            return
+
+    # Encrypt and upload (see Python example above)
+    encrypted = encrypt(aes_key, content)
+    resp = requests.post(
+        f'{server}/api/v0/add?pin=true',
+        headers={'X-Pubkey': pubkey, 'X-Filename': filename, 'X-Content-MD5': md5},
+        files={'file': ('encrypted.json', encrypted)}
+    )
+    print(f'UP {filename} → {resp.json()["Hash"]}')</code></pre>
+
     <h2>Security Model</h2>
     
     <div class="section">
