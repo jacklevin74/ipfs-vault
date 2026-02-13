@@ -148,6 +148,50 @@
             border-bottom: 1px solid #30363d;
         }
 
+        .file-group {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            overflow: hidden;
+        }
+        .file-group-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 15px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .file-group-header:hover { background: #161b22; }
+        .file-group-header .file-name { color: #58a6ff; font-weight: 500; }
+        .file-group-count {
+            font-size: 11px;
+            color: #8b949e;
+            background: #21262d;
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-left: 8px;
+        }
+        .file-group-versions {
+            display: none;
+            border-top: 1px solid #30363d;
+        }
+        .file-group-versions.open { display: block; }
+        .file-version {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 15px 8px 30px;
+            cursor: pointer;
+            transition: background 0.2s;
+            border-bottom: 1px solid #1c2128;
+        }
+        .file-version:last-child { border-bottom: none; }
+        .file-version:hover { background: #161b22; }
+        .file-version .file-cid { font-family: monospace; font-size: 11px; color: #8b949e; }
+        .file-md5 { font-family: monospace; font-size: 10px; color: #6e7681; margin-left: 6px; }
+
         .empty-state {
             text-align: center;
             padding: 40px;
@@ -604,22 +648,74 @@
                 
                 if (data.files && data.files.length > 0) {
                     const totalSize = data.files.reduce((sum, f) => sum + (f.size || 0), 0);
-                    const fileCount = data.files.length;
-                    listEl.innerHTML = `<div class="file-stats"><span>${fileCount} file${fileCount !== 1 ? 's' : ''}</span><span>${formatSize(totalSize)} total</span></div>` + data.files.map(f => `
-                        <div class="file-item" onclick="selectFile('${f.cid}')">
-                            <div>
-                                <div class="file-name">${escapeHtml(displayFilename(f.filename))}</div>
-                                <div class="file-cid" title="${f.cid}">
-                                    <span class="cid-short">${f.cid.slice(0, 12)}...${f.cid.slice(-6)}</span>
-                                    <a href="https://ipfs.io/ipfs/${f.cid}" target="_blank" onclick="event.stopPropagation()" class="deeplink" title="Open on IPFS gateway">🔗</a>
+
+                    // Group files by clean name
+                    const groups = {};
+                    data.files.forEach(f => {
+                        const name = displayFilename(f.filename);
+                        if (!groups[name]) groups[name] = [];
+                        groups[name].push(f);
+                    });
+                    // Sort groups: most recent first (by newest version in group)
+                    const sortedNames = Object.keys(groups).sort((a, b) => {
+                        const aDate = groups[a][0].created_at || '';
+                        const bDate = groups[b][0].created_at || '';
+                        return bDate.localeCompare(aDate);
+                    });
+                    const uniqueCount = sortedNames.length;
+
+                    listEl.innerHTML = `<div class="file-stats"><span>${uniqueCount} file${uniqueCount !== 1 ? 's' : ''} (${data.files.length} versions)</span><span>${formatSize(totalSize)} total</span></div>` + sortedNames.map(name => {
+                        const versions = groups[name];
+                        if (versions.length === 1) {
+                            const f = versions[0];
+                            const md5short = f.md5 ? f.md5.slice(0, 10) : '';
+                            return `<div class="file-group">
+                                <div class="file-group-header" onclick="selectFile('${f.cid}')">
+                                    <div>
+                                        <div class="file-name">${escapeHtml(name)}</div>
+                                        <div class="file-cid" title="${f.cid}">
+                                            <span class="cid-short">${f.cid.slice(0, 12)}...${f.cid.slice(-6)}</span>
+                                            <a href="https://ipfs.io/ipfs/${f.cid}" target="_blank" onclick="event.stopPropagation()" class="deeplink" title="Open on IPFS gateway">🔗</a>
+                                            ${md5short ? `<span class="file-md5" title="MD5: ${f.md5}">md5:${md5short}</span>` : ''}
+                                        </div>
+                                    </div>
+                                    <div class="file-actions">
+                                        <span class="file-meta">${formatSize(f.size)} • ${formatDate(f.created_at)}</span>
+                                        <button class="delete-btn" onclick="event.stopPropagation(); deleteFile('${f.cid}')" title="Delete file">🗑️</button>
+                                    </div>
+                                </div>
+                            </div>`;
+                        }
+                        return `<div class="file-group">
+                            <div class="file-group-header" onclick="toggleVersions(this)">
+                                <div>
+                                    <div class="file-name">${escapeHtml(name)}<span class="file-group-count">${versions.length} versions</span></div>
+                                    <div class="file-cid" style="color:#8b949e;font-size:11px;">latest: ${versions[0].cid.slice(0, 12)}...${versions[0].cid.slice(-6)}</div>
+                                </div>
+                                <div class="file-actions">
+                                    <span class="file-meta">${formatSize(versions[0].size)} • ${formatDate(versions[0].created_at)}</span>
                                 </div>
                             </div>
-                            <div class="file-actions">
-                                <span class="file-meta">${formatSize(f.size)} • ${formatDate(f.created_at)}</span>
-                                <button class="delete-btn" onclick="event.stopPropagation(); deleteFile('${f.cid}')" title="Delete file">🗑️</button>
+                            <div class="file-group-versions">${versions.map((f, i) => {
+                                const vmd5 = f.md5 ? f.md5.slice(0, 10) : '';
+                                return `<div class="file-version" onclick="event.stopPropagation(); selectFile('${f.cid}')">
+                                    <div>
+                                        <div class="file-cid" title="${f.cid}">
+                                            <span class="cid-short">${f.cid.slice(0, 12)}...${f.cid.slice(-6)}</span>
+                                            <a href="https://ipfs.io/ipfs/${f.cid}" target="_blank" onclick="event.stopPropagation()" class="deeplink" title="Open on IPFS gateway">🔗</a>
+                                            ${vmd5 ? `<span class="file-md5" title="MD5: ${f.md5}">md5:${vmd5}</span>` : ''}
+                                        </div>
+                                    </div>
+                                    <div class="file-actions">
+                                        <span class="file-meta">${formatSize(f.size)} • ${formatDate(f.created_at)}</span>
+                                        <button class="delete-btn" onclick="event.stopPropagation(); deleteFile('${f.cid}')" title="Delete file">🗑️</button>
+                                    </div>
+                                </div>`; }).join('')}
                             </div>
-                        </div>
-                    `).join('');
+                        </div>`;
+                    }).join('');
+                    // Backfill MD5 for files missing it (in background)
+                    backfillMd5(data.files);
                 } else {
                     listEl.innerHTML = '<div class="empty-state">No files yet. Upload your first encrypted file!</div>';
                 }
@@ -628,11 +724,49 @@
             }
         }
         
+        // Backfill plaintext MD5 for files missing it (runs in background)
+        async function backfillMd5(files) {
+            const missing = files.filter(f => !f.md5);
+            if (!missing.length || !derivedKey) return;
+            console.log(`[MD5] Backfilling ${missing.length} files...`);
+            let updated = 0;
+            for (const f of missing) {
+                try {
+                    const resp = await fetch(`${IPFS_API}/cat?arg=${f.cid}`, { method: 'POST' });
+                    const text = await resp.text();
+                    const pkg = JSON.parse(text);
+                    if (pkg.version !== 1) continue;
+                    const combined = Uint8Array.from(atob(pkg.data), c => c.charCodeAt(0));
+                    const decrypted = await crypto.subtle.decrypt(
+                        { name: 'AES-GCM', iv: combined.slice(0, 12) },
+                        derivedKey, combined.slice(12)
+                    );
+                    const md5 = await computeMd5(new Uint8Array(decrypted));
+                    await fetch(`${INDEX_API}/md5`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-Pubkey': publicKey },
+                        body: JSON.stringify({ cid: f.cid, md5 })
+                    });
+                    updated++;
+                } catch (e) {
+                    console.log(`[MD5] Skip ${f.cid.slice(0, 12)}: ${e.message}`);
+                }
+            }
+            if (updated > 0) {
+                console.log(`[MD5] Updated ${updated}/${missing.length} files`);
+                loadMyFiles(); // Refresh to show new MD5s
+            }
+        }
+
         function selectFile(cid) {
             document.getElementById('decryptCid').value = cid;
             retrieveAndDecrypt(cid);
-            // Scroll to decrypt result
             document.getElementById('decryptResult').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        function toggleVersions(header) {
+            const versions = header.nextElementSibling;
+            versions.classList.toggle('open');
         }
         
         async function deleteFile(cid) {
@@ -714,15 +848,20 @@
                 };
                 
                 showResult('encryptResult', '⏳ Uploading...', false);
-                
+
+                // Compute MD5 of plaintext (before encryption) for dedup detection
+                const plaintextBytes = new TextEncoder().encode(plaintext);
+                const md5Hash = await computeMd5(plaintextBytes);
+
                 const formData = new FormData();
                 formData.append('file', new Blob([JSON.stringify(pkg)], { type: 'application/json' }));
-                
+
                 const resp = await fetch(`${IPFS_API}/add?pin=true`, {
                     method: 'POST',
                     headers: {
                         'X-Pubkey': publicKey,
-                        'X-Filename': filename || ''
+                        'X-Filename': filename || '',
+                        'X-Content-MD5': md5Hash
                     },
                     body: formData
                 });
@@ -782,6 +921,73 @@
             }
         }
         
+        // MD5 computation (for plaintext dedup detection)
+        async function computeMd5(data) {
+            // Minimal MD5 implementation for browser
+            function md5(buffer) {
+                const bytes = new Uint8Array(buffer);
+                const words = [];
+                for (let i = 0; i < bytes.length; i += 4)
+                    words.push((bytes[i]) | (bytes[i+1] << 8) | (bytes[i+2] << 16) | (bytes[i+3] << 24));
+
+                function rotl(x, n) { return (x << n) | (x >>> (32 - n)); }
+                function f1(b, c, d) { return (b & c) | (~b & d); }
+                function f2(b, c, d) { return (d & b) | (~d & c); }
+                function f3(b, c, d) { return b ^ c ^ d; }
+                function f4(b, c, d) { return c ^ (b | ~d); }
+
+                const S = [
+                    7,12,17,22, 7,12,17,22, 7,12,17,22, 7,12,17,22,
+                    5, 9,14,20, 5, 9,14,20, 5, 9,14,20, 5, 9,14,20,
+                    4,11,16,23, 4,11,16,23, 4,11,16,23, 4,11,16,23,
+                    6,10,15,21, 6,10,15,21, 6,10,15,21, 6,10,15,21
+                ];
+                const K = new Uint32Array(64);
+                for (let i = 0; i < 64; i++) K[i] = Math.floor(2**32 * Math.abs(Math.sin(i + 1))) >>> 0;
+
+                const bitLen = bytes.length * 8;
+                const padded = new Uint8Array(bytes.length + 64 - ((bytes.length + 8) % 64) + 8);
+                padded.set(bytes);
+                padded[bytes.length] = 0x80;
+                const view = new DataView(padded.buffer);
+                view.setUint32(padded.length - 8, bitLen >>> 0, true);
+                view.setUint32(padded.length - 4, (bitLen / 2**32) >>> 0, true);
+
+                let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+
+                for (let off = 0; off < padded.length; off += 64) {
+                    const M = new Uint32Array(16);
+                    for (let j = 0; j < 16; j++) M[j] = view.getUint32(off + j * 4, true);
+
+                    let a = a0, b = b0, cc = c0, d = d0;
+                    for (let i = 0; i < 64; i++) {
+                        let f, g;
+                        if (i < 16)      { f = f1(b, cc, d); g = i; }
+                        else if (i < 32) { f = f2(b, cc, d); g = (5*i + 1) % 16; }
+                        else if (i < 48) { f = f3(b, cc, d); g = (3*i + 5) % 16; }
+                        else             { f = f4(b, cc, d); g = (7*i) % 16; }
+                        const tmp = d;
+                        d = cc;
+                        cc = b;
+                        b = (b + rotl((a + f + K[i] + M[g]) >>> 0, S[i])) >>> 0;
+                        a = tmp;
+                    }
+                    a0 = (a0 + a) >>> 0;
+                    b0 = (b0 + b) >>> 0;
+                    c0 = (c0 + cc) >>> 0;
+                    d0 = (d0 + d) >>> 0;
+                }
+
+                const result = new DataView(new ArrayBuffer(16));
+                result.setUint32(0, a0, true);
+                result.setUint32(4, b0, true);
+                result.setUint32(8, c0, true);
+                result.setUint32(12, d0, true);
+                return Array.from(new Uint8Array(result.buffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+            }
+            return md5(data);
+        }
+
         function showResult(id, msg, isError) {
             const el = document.getElementById(id);
             el.className = `result show ${isError ? 'error' : ''}`;

@@ -8,7 +8,9 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
-    "better-sqlite3": "^11.0.0"
+    "better-sqlite3": "^11.0.0",
+    "bs58": "^6.0.0",
+    "tweetnacl": "^1.0.3"
   },
   "engines": {
     "node": ">=18.0.0"

@@ -169,7 +169,7 @@
         <tr>
             <td><code>/api/v0/add?pin=true</code></td>
             <td>POST</td>
-            <td>Upload file (multipart form, set <code>X-Pubkey</code> and <code>X-Filename</code> headers)</td>
+            <td>Upload file (multipart form). Headers: <code>X-Pubkey</code>, <code>X-Filename</code>, <code>X-Content-MD5</code> (MD5 of plaintext before encryption)</td>
         </tr>
         <tr>
             <td><code>/index/files?pubkey=X</code></td>
@@ -186,16 +186,44 @@
             <td>DELETE</td>
             <td>Remove from index (set <code>X-Pubkey</code> header)</td>
         </tr>
+        <tr>
+            <td><code>/index/checksums?pubkey=X</code></td>
+            <td>GET</td>
+            <td>List MD5 checksums for all files (optional <code>pubkey</code> filter)</td>
+        </tr>
     </table>
     
     <h3>Upload Example (curl)</h3>
     <pre><code>curl -X POST "https://vault.x1.xyz/ipfs/api/v0/add?pin=true" \
   -H "X-Pubkey: YourWalletPublicKey" \
   -H "X-Filename: myfile.txt" \
+  -H "X-Content-MD5: $(md5sum plaintext.txt | cut -d' ' -f1)" \
   -F "file=@encrypted.json"</code></pre>
     
     <h3>Response</h3>
-    <pre><code>{"Name":"myfile.txt","Hash":"QmXxx...","Size":"1234"}</code></pre>
+    <pre><code>{"Name":"myfile.txt","Hash":"QmXxx...","Size":"1234","MD5":"d41d8cd98f00b204e9800998ecf8427e"}</code></pre>
+
+    <h3>Checksums Example (curl)</h3>
+    <pre><code># All files
+curl "https://vault.x1.xyz/index/checksums"
+
+# Filtered by wallet
+curl "https://vault.x1.xyz/index/checksums?pubkey=YourWalletPublicKey"</code></pre>
+
+    <h3>Checksums Response</h3>
+    <pre><code>{
+  "files": [
+    {
+      "cid": "QmXxx...",
+      "filename": "myfile.txt",
+      "size": 1234,
+      "md5": "d41d8cd98f00b204e9800998ecf8427e",
+      "created_at": "2025-02-13T20:25:00.000Z"
+    }
+  ],
+  "count": 1
+}</code></pre>
+    <p><strong>Note:</strong> The MD5 is of the <strong>unencrypted plaintext</strong>, sent via the <code>X-Content-MD5</code> header at upload time. This allows duplicate detection even though each encryption produces different ciphertext (due to random IVs). Clients must compute and send this header — the server cannot derive it from the encrypted content.</p>
     
     <h2>CLI Usage (For Bots & Agents)</h2>
     
@@ -233,6 +261,9 @@ async function upload(keyPath, filename, data) {
     const sig = nacl.sign.detached(Buffer.from(DERIVATION_MSG), keypair.secretKey);
     const aesKey = crypto.createHash('sha256').update(sig).digest();
 
+    // MD5 of plaintext (for duplicate detection)
+    const contentMd5 = crypto.createHash('md5').update(data, 'utf8').digest('hex');
+
     // Encrypt
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv('aes-256-gcm', aesKey, iv);
@@ -252,7 +283,10 @@ async function upload(keyPath, filename, data) {
 
     const resp = await fetch(`${VAULT_URL}/api/v0/add?pin=true`, {
         method: 'POST',
-        headers: { 'X-Pubkey': publicKey, 'X-Filename': filename, ...form.getHeaders() },
+        headers: {
+            'X-Pubkey': publicKey, 'X-Filename': filename,
+            'X-Content-MD5': contentMd5, ...form.getHeaders()
+        },
         body: form
     });
     return JSON.parse((await resp.text()).split('\n')[0]);
@@ -286,22 +320,28 @@ def upload(key_path, filename, data):
     signature = signing_key.sign(DERIVATION_MSG).signature
     aes_key = hashlib.sha256(signature).digest()
     
+    # MD5 of plaintext (for duplicate detection)
+    content_md5 = hashlib.md5(data.encode()).hexdigest()
+
     # Encrypt
     iv = os.urandom(12)
     aesgcm = AESGCM(aes_key)
     ciphertext = aesgcm.encrypt(iv, data.encode(), None)
     combined = base64.b64encode(iv + ciphertext).decode()
-    
+
     # Build payload
     payload = json.dumps({
         'version': 1, 'algorithm': 'AES-256-GCM', 'wallet': public_key,
         'derivationMsg': 'IPFS_ENCRYPTION_KEY_V1', 'data': combined
     })
-    
+
     # Upload
     resp = requests.post(
         f'{VAULT_URL}/api/v0/add?pin=true',
-        headers={'X-Pubkey': public_key, 'X-Filename': filename},
+        headers={
+            'X-Pubkey': public_key, 'X-Filename': filename,
+            'X-Content-MD5': content_md5
+        },
         files={'file': ('encrypted.json', payload)}
     )
     return resp.json()
@@ -335,8 +375,12 @@ def upload(key_path, filename, data):
     }
 
     async upload(content, filename) {
-        const iv = crypto.getRandomValues(new Uint8Array(12));
         const data = new TextEncoder().encode(content);
+
+        // MD5 of plaintext (for duplicate detection)
+        const contentMd5 = await this.md5(data);
+
+        const iv = crypto.getRandomValues(new Uint8Array(12));
         const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, this.derivedKey, data);
         const combined = new Uint8Array(iv.length + encrypted.byteLength);
         combined.set(iv);
@@ -352,7 +396,10 @@ def upload(key_path, filename, data):
         form.append('file', new Blob([payload]));
         const resp = await fetch(`${this.baseUrl}/api/v0/add?pin=true`, {
             method: 'POST',
-            headers: { 'X-Pubkey': this.publicKey, 'X-Filename': filename },
+            headers: {
+                'X-Pubkey': this.publicKey, 'X-Filename': filename,
+                'X-Content-MD5': contentMd5
+            },
             body: form
         });
         return JSON.parse((await resp.text()).split('\n')[0]);
@@ -362,13 +409,48 @@ def upload(key_path, filename, data):
         const resp = await fetch(`https://ipfs.io/ipfs/${cid}`);
         const json = await resp.json();
         if (json.wallet !== this.publicKey) throw new Error('Wrong wallet');
-        
+
         const combined = Uint8Array.from(atob(json.data), c => c.charCodeAt(0));
         const decrypted = await crypto.subtle.decrypt(
             { name: 'AES-GCM', iv: combined.slice(0, 12) },
             this.derivedKey, combined.slice(12)
         );
         return new TextDecoder().decode(decrypted);
+    }
+
+    // Compute MD5 hex digest in browser (no external deps)
+    async md5(data) {
+        // Uses a minimal pure-JS MD5 — or use a library like spark-md5
+        // For production, consider importing a proper MD5 library
+        const msgLen = data.length;
+        const s = [7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,
+                   5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,
+                   4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,
+                   6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21];
+        const K = Array.from({length:64},(_,i)=>Math.floor(2**32*Math.abs(Math.sin(i+1)))>>>0);
+        const pad = new Uint8Array(msgLen+64-((msgLen+8)%64)+8);
+        pad.set(data); pad[msgLen]=0x80;
+        const dv = new DataView(pad.buffer);
+        dv.setUint32(pad.length-8, (msgLen*8)>>>0, true);
+        let [a0,b0,c0,d0] = [0x67452301,0xefcdab89,0x98badcfe,0x10325476];
+        for (let o=0; o<pad.length; o+=64) {
+            const M=Array.from({length:16},(_,j)=>dv.getUint32(o+j*4,true));
+            let [a,b,c,d]=[a0,b0,c0,d0];
+            for (let i=0;i<64;i++){
+                let f,g;
+                if(i<16){f=(b&c)|(~b&d);g=i}
+                else if(i<32){f=(d&b)|(~d&c);g=(5*i+1)%16}
+                else if(i<48){f=b^c^d;g=(3*i+5)%16}
+                else{f=c^(b|~d);g=(7*i)%16}
+                const t=d;d=c;c=b;
+                b=(b+((a+f+K[i]+M[g])>>>0<<s[i]|(a+f+K[i]+M[g])>>>0>>>(32-s[i])))>>>0;
+                a=t;
+            }
+            a0=(a0+a)>>>0;b0=(b0+b)>>>0;c0=(c0+c)>>>0;d0=(d0+d)>>>0;
+        }
+        const r=new DataView(new ArrayBuffer(16));
+        r.setUint32(0,a0,true);r.setUint32(4,b0,true);r.setUint32(8,c0,true);r.setUint32(12,d0,true);
+        return[...new Uint8Array(r.buffer)].map(b=>b.toString(16).padStart(2,'0')).join('');
     }
 }
 

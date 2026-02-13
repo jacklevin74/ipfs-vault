@@ -10,6 +10,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { URL } = require('url');
 
 // Try to load better-sqlite3, fall back to sql.js if not available
@@ -120,6 +121,8 @@ function initDb() {
         `);
         db.exec('CREATE INDEX IF NOT EXISTS idx_pubkey ON files(pubkey)');
         db.exec('CREATE INDEX IF NOT EXISTS idx_cid ON files(cid)');
+        // Add md5 column if missing (existing databases)
+        try { db.exec('ALTER TABLE files ADD COLUMN md5 TEXT'); } catch (e) { /* already exists */ }
         console.log(`[DB] Initialized at ${DB_PATH}`);
     } else {
         // Fallback: in-memory store (for testing without sqlite)
@@ -132,14 +135,14 @@ function initDb() {
 }
 
 // Index a file in the database
-function indexFile(pubkey, cid, filename, size) {
+function indexFile(pubkey, cid, filename, size, md5 = null) {
     try {
         const stmt = db.prepare(`
-            INSERT OR REPLACE INTO files (pubkey, cid, filename, size_bytes)
-            VALUES (?, ?, ?, ?)
+            INSERT OR REPLACE INTO files (pubkey, cid, filename, size_bytes, md5)
+            VALUES (?, ?, ?, ?, ?)
         `);
-        stmt.run(pubkey, cid, filename, size);
-        log('INDEX', 'File indexed', { pubkey: pubkey.slice(0, 12), cid: cid.slice(0, 16), filename, size });
+        stmt.run(pubkey, cid, filename, size, md5);
+        log('INDEX', 'File indexed', { pubkey: pubkey.slice(0, 12), cid: cid.slice(0, 16), filename, size, md5: md5 ? md5.slice(0, 8) + '...' : null });
     } catch (e) {
         log('INDEX', 'Index error', { error: e.message, cid });
     }
@@ -177,7 +180,7 @@ function sendJson(res, data, status = 200) {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
-        'Access-Control-Allow-Headers': 'Content-Type, X-Pubkey, X-Filename'
+        'Access-Control-Allow-Headers': 'Content-Type, X-Pubkey, X-Filename, X-Content-MD5'
     });
     res.end(JSON.stringify(data));
 }
@@ -239,7 +242,7 @@ function proxyToIpfs(req, res, ipfsPath, body) {
             'Content-Type': proxyRes.headers['content-type'] || 'application/octet-stream',
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
-            'Access-Control-Allow-Headers': 'Content-Type, X-Pubkey, X-Filename'
+            'Access-Control-Allow-Headers': 'Content-Type, X-Pubkey, X-Filename, X-Content-MD5'
         });
         proxyRes.pipe(res);
     });
@@ -295,15 +298,19 @@ async function handleIpfsAdd(req, res) {
                     const cid = result.Hash;
                     const size = parseInt(result.Size) || 0;
                     const prefix = cid.slice(-8);
-                    
+
                     // Prepend CID prefix for uniqueness
-                    const indexedFilename = userFilename 
+                    const indexedFilename = userFilename
                         ? `${prefix}-${userFilename}`
                         : `${prefix}-file`;
-                    
-                    indexFile(pubkey, cid, indexedFilename, size);
+
+                    // Use plaintext MD5 from client if provided, else hash encrypted content
+                    const md5 = req.headers['x-content-md5'] || crypto.createHash('md5').update(body).digest('hex');
+
+                    indexFile(pubkey, cid, indexedFilename, size, md5);
                     result.IndexedFilename = indexedFilename;
-                    log('IPFS_ADD', 'Upload complete', { cid: cid.slice(0, 16), size });
+                    result.MD5 = md5;
+                    log('IPFS_ADD', 'Upload complete', { cid: cid.slice(0, 16), size, md5 });
                 } else {
                     log('IPFS_ADD', 'Upload complete (no index)', { cid: result.Hash?.slice(0, 16) });
                 }
@@ -339,18 +346,19 @@ function handleListFiles(res, pubkey) {
     
     try {
         const stmt = db.prepare(`
-            SELECT cid, filename, size_bytes, created_at, encrypted
+            SELECT cid, filename, size_bytes, created_at, encrypted, md5
             FROM files WHERE pubkey = ?
             ORDER BY created_at DESC
         `);
         const rows = stmt.all(pubkey);
-        
+
         const files = rows.map(row => ({
             cid: row.cid,
             filename: row.filename,
             size: row.size_bytes,
             created_at: row.created_at,
-            encrypted: Boolean(row.encrypted)
+            encrypted: Boolean(row.encrypted),
+            md5: row.md5 || null
         }));
         
         log('LIST', 'Files listed', { pubkey: pubkey.slice(0, 12), count: files.length });
@@ -365,11 +373,11 @@ function handleListFiles(res, pubkey) {
 function handleGetFile(res, cid) {
     try {
         const stmt = db.prepare(`
-            SELECT pubkey, cid, filename, size_bytes, created_at, encrypted
+            SELECT pubkey, cid, filename, size_bytes, created_at, encrypted, md5
             FROM files WHERE cid = ?
         `);
         const row = stmt.get(cid);
-        
+
         if (row) {
             log('GET', 'File info retrieved', { cid: cid.slice(0, 16), filename: row.filename });
             sendJson(res, {
@@ -378,7 +386,8 @@ function handleGetFile(res, cid) {
                 filename: row.filename,
                 size: row.size_bytes,
                 created_at: row.created_at,
-                encrypted: Boolean(row.encrypted)
+                encrypted: Boolean(row.encrypted),
+                md5: row.md5 || null
             });
         } else {
             log('GET', 'File not found', { cid: cid.slice(0, 16) });
@@ -437,6 +446,72 @@ function handleDeleteFile(res, cid, pubkey) {
         }
     } catch (e) {
         log('DELETE', 'Delete error', { error: e.message, cid: cid.slice(0, 16) });
+        sendJson(res, { error: e.message }, 500);
+    }
+}
+
+// List checksums for pubkey (or all files)
+function handleChecksums(res, pubkey) {
+    try {
+        let stmt, rows;
+        if (pubkey) {
+            stmt = db.prepare(`
+                SELECT cid, filename, size_bytes, md5, created_at
+                FROM files WHERE pubkey = ?
+                ORDER BY created_at DESC
+            `);
+            rows = stmt.all(pubkey);
+        } else {
+            stmt = db.prepare(`
+                SELECT cid, filename, size_bytes, md5, created_at
+                FROM files ORDER BY created_at DESC
+            `);
+            rows = stmt.all();
+        }
+
+        const files = rows.map(row => ({
+            cid: row.cid,
+            filename: row.filename,
+            size: row.size_bytes,
+            md5: row.md5 || null,
+            created_at: row.created_at
+        }));
+
+        log('CHECKSUMS', 'Checksums listed', { pubkey: pubkey ? pubkey.slice(0, 12) : 'all', count: files.length });
+        sendJson(res, { files, count: files.length });
+    } catch (e) {
+        log('CHECKSUMS', 'Checksums error', { error: e.message });
+        sendJson(res, { error: e.message }, 500);
+    }
+}
+
+// Update MD5 for a CID
+async function handleUpdateMd5(req, res) {
+    try {
+        const data = await parseBody(req);
+        const { cid, md5 } = data;
+        const pubkey = req.headers['x-pubkey'];
+
+        if (!cid || !md5 || !pubkey) {
+            sendJson(res, { error: 'cid, md5, and X-Pubkey header required' }, 400);
+            return;
+        }
+        if (!/^[a-f0-9]{32}$/.test(md5)) {
+            sendJson(res, { error: 'invalid md5 format' }, 400);
+            return;
+        }
+
+        const stmt = db.prepare('UPDATE files SET md5 = ? WHERE cid = ? AND pubkey = ?');
+        const result = stmt.run(md5, cid, pubkey);
+
+        if (result.changes > 0) {
+            log('MD5', 'Updated', { cid: cid.slice(0, 16), md5: md5.slice(0, 8) });
+            sendJson(res, { success: true, cid, md5 });
+        } else {
+            sendJson(res, { error: 'File not found or not owned' }, 404);
+        }
+    } catch (e) {
+        log('MD5', 'Update error', { error: e.message });
         sendJson(res, { error: e.message }, 500);
     }
 }
@@ -518,7 +593,7 @@ async function handleRequest(req, res) {
         res.writeHead(200, {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
-            'Access-Control-Allow-Headers': 'Content-Type, X-Pubkey, X-Filename'
+            'Access-Control-Allow-Headers': 'Content-Type, X-Pubkey, X-Filename, X-Content-MD5'
         });
         res.end();
         return;
@@ -547,6 +622,16 @@ async function handleRequest(req, res) {
             return;
         }
         
+        if (pathname === '/index/checksums') {
+            handleChecksums(res, url.searchParams.get('pubkey'));
+            return;
+        }
+
+        if (pathname === '/index/md5' && req.method === 'POST') {
+            await handleUpdateMd5(req, res);
+            return;
+        }
+
         if (pathname === '/index/register' && req.method === 'POST') {
             await handleRegisterFile(req, res);
             return;
