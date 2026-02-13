@@ -138,6 +138,16 @@
         }
         .delete-btn:hover { opacity: 1; background: rgba(248, 81, 73, 0.2); }
         
+        .file-stats {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 15px;
+            margin-bottom: 10px;
+            color: #8b949e;
+            font-size: 13px;
+            border-bottom: 1px solid #30363d;
+        }
+
         .empty-state {
             text-align: center;
             padding: 40px;
@@ -593,7 +603,9 @@
                 const data = await resp.json();
                 
                 if (data.files && data.files.length > 0) {
-                    listEl.innerHTML = data.files.map(f => `
+                    const totalSize = data.files.reduce((sum, f) => sum + (f.size || 0), 0);
+                    const fileCount = data.files.length;
+                    listEl.innerHTML = `<div class="file-stats"><span>${fileCount} file${fileCount !== 1 ? 's' : ''}</span><span>${formatSize(totalSize)} total</span></div>` + data.files.map(f => `
                         <div class="file-item" onclick="selectFile('${f.cid}')">
                             <div>
                                 <div class="file-name">${escapeHtml(displayFilename(f.filename))}</div>
