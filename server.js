@@ -194,7 +194,8 @@ function sendStatic(res, filepath) {
         '.js': 'application/javascript',
         '.json': 'application/json',
         '.png': 'image/png',
-        '.ico': 'image/x-icon'
+        '.ico': 'image/x-icon',
+        '.pdf': 'application/pdf'
     };
     
     fs.readFile(filepath, (err, data) => {
