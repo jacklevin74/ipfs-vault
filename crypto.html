@@ -366,6 +366,7 @@
         <!-- My Files Section -->
         <div class="section">
             <h2>📁 My Encrypted Files</h2>
+            <input type="text" id="fileSearch" placeholder="Search files..." oninput="filterFiles()" style="margin-bottom:10px;width:100%;">
             <div id="fileList" class="file-list">
                 <div class="empty-state">Loading...</div>
             </div>
@@ -756,6 +757,15 @@
                 console.log(`[MD5] Updated ${updated}/${missing.length} files`);
                 loadMyFiles(); // Refresh to show new MD5s
             }
+        }
+
+        function filterFiles() {
+            const q = document.getElementById('fileSearch').value.toLowerCase();
+            document.querySelectorAll('#fileList .file-group').forEach(el => {
+                const name = el.querySelector('.file-name')?.textContent.toLowerCase() || '';
+                const cids = el.textContent.toLowerCase();
+                el.style.display = (name.includes(q) || cids.includes(q)) ? '' : 'none';
+            });
         }
 
         function selectFile(cid) {
