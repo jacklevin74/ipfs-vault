@@ -1,0 +1,16 @@
+{
+  "name": "ipfs-encrypted-storage",
+  "version": "1.0.0",
+  "description": "IPFS Encrypted Storage Server with wallet-derived keys",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

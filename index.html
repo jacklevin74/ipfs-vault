@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPFS Upload & Retrieve</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #0d1117;
+            color: #c9d1d9;
+        }
+        h1 { color: #58a6ff; margin-bottom: 30px; }
+        h2 { color: #8b949e; font-size: 1.1em; margin-top: 30px; }
+        
+        .section {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        textarea, input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #c9d1d9;
+            font-family: monospace;
+            font-size: 14px;
+            resize: vertical;
+        }
+        textarea { min-height: 120px; }
+        input[type="file"] { margin: 10px 0; }
+        
+        button {
+            background: #238636;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 10px;
+            margin-right: 10px;
+        }
+        button:hover { background: #2ea043; }
+        button:disabled { background: #30363d; cursor: not-allowed; }
+        button.secondary {
+            background: #21262d;
+            border: 1px solid #30363d;
+        }
+        button.secondary:hover { background: #30363d; }
+        
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 13px;
+            word-break: break-all;
+            white-space: pre-wrap;
+            display: none;
+        }
+        .result.show { display: block; }
+        .result.error { border-color: #f85149; color: #f85149; }
+        .result.success { border-color: #238636; }
+        
+        .cid-link {
+            color: #58a6ff;
+            text-decoration: none;
+        }
+        .cid-link:hover { text-decoration: underline; }
+        
+        .row { display: flex; gap: 10px; align-items: center; }
+        .row input[type="text"] { flex: 1; }
+        
+        .status { color: #8b949e; font-size: 12px; margin-top: 5px; }
+        .spinner { display: inline-block; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        #pinsList {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .pin-item {
+            padding: 8px;
+            border-bottom: 1px solid #21262d;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .pin-item:hover { background: #21262d; }
+    </style>
+</head>
+<body>
+    <h1>🌐 IPFS Upload & Retrieve</h1>
+    
+    <div class="section">
+        <h2>📤 Upload Text</h2>
+        <textarea id="textInput" placeholder="Enter text to upload to IPFS..."></textarea>
+        <button onclick="uploadText()">Upload Text</button>
+        <div id="textResult" class="result"></div>
+    </div>
+    
+    <div class="section">
+        <h2>📁 Upload File</h2>
+        <input type="file" id="fileInput">
+        <button onclick="uploadFile()">Upload File</button>
+        <div id="fileResult" class="result"></div>
+    </div>
+    
+    <div class="section">
+        <h2>📥 Retrieve by CID</h2>
+        <div class="row">
+            <input type="text" id="cidInput" placeholder="QmXxx... or bafyxxx...">
+            <button onclick="retrieveCID()">Retrieve</button>
+        </div>
+        <div id="retrieveResult" class="result"></div>
+    </div>
+    
+    <div class="section">
+        <h2>📌 Pinned Content</h2>
+        <button class="secondary" onclick="listPins()">Refresh Pins</button>
+        <div id="pinsList" class="result"></div>
+    </div>
+    
+    <div class="status">
+        API: <span id="apiEndpoint"></span>
+    </div>
+
+    <script>
+        const IPFS_API = '';  // Use local proxy to avoid CORS
+        document.getElementById('apiEndpoint').textContent = IPFS_API;
+        
+        async function uploadText() {
+            const text = document.getElementById('textInput').value;
+            if (!text.trim()) {
+                showResult('textResult', 'Please enter some text', true);
+                return;
+            }
+            
+            const resultDiv = document.getElementById('textResult');
+            resultDiv.className = 'result show';
+            resultDiv.textContent = '⏳ Uploading...';
+            
+            try {
+                const formData = new FormData();
+                formData.append('file', new Blob([text], { type: 'text/plain' }));
+                
+                const response = await fetch(`${IPFS_API}/api/v0/add?pin=true`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                showUploadResult('textResult', data);
+            } catch (err) {
+                showResult('textResult', `Error: ${err.message}`, true);
+            }
+        }
+        
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            if (!fileInput.files.length) {
+                showResult('fileResult', 'Please select a file', true);
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            const resultDiv = document.getElementById('fileResult');
+            resultDiv.className = 'result show';
+            resultDiv.textContent = `⏳ Uploading ${file.name}...`;
+            
+            try {
+                const formData = new FormData();
+                formData.append('file', file, file.name);
+                
+                const response = await fetch(`${IPFS_API}/api/v0/add?pin=true`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                showUploadResult('fileResult', data);
+            } catch (err) {
+                showResult('fileResult', `Error: ${err.message}`, true);
+            }
+        }
+        
+        function showUploadResult(elementId, data) {
+            const div = document.getElementById(elementId);
+            div.className = 'result show success';
+            div.innerHTML = `✅ Uploaded successfully!
+
+<strong>CID:</strong> <a class="cid-link" href="#" onclick="loadCID('${data.Hash}')">${data.Hash}</a>
+<strong>Size:</strong> ${data.Size} bytes
+<strong>Name:</strong> ${data.Name || '(text)'}
+
+<button class="secondary" onclick="copyToClipboard('${data.Hash}')">Copy CID</button>`;
+        }
+        
+        async function retrieveCID() {
+            const cid = document.getElementById('cidInput').value.trim();
+            if (!cid) {
+                showResult('retrieveResult', 'Please enter a CID', true);
+                return;
+            }
+            
+            const resultDiv = document.getElementById('retrieveResult');
+            resultDiv.className = 'result show';
+            resultDiv.textContent = '⏳ Retrieving...';
+            
+            try {
+                const response = await fetch(`${IPFS_API}/api/v0/cat?arg=${cid}`, {
+                    method: 'POST'
+                });
+                
+                const text = await response.text();
+                
+                // Check if it's a directory error
+                try {
+                    const json = JSON.parse(text);
+                    if (json.Message && json.Message.includes('directory')) {
+                        // It's a directory - list contents instead
+                        await listDirectory(cid);
+                        return;
+                    }
+                    if (json.Message) {
+                        throw new Error(json.Message);
+                    }
+                } catch (e) {
+                    if (e.message && !e.message.includes('JSON')) {
+                        throw e;
+                    }
+                }
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                resultDiv.className = 'result show success';
+                resultDiv.textContent = text;
+            } catch (err) {
+                showResult('retrieveResult', `Error: ${err.message}`, true);
+            }
+        }
+        
+        async function listDirectory(cid) {
+            const resultDiv = document.getElementById('retrieveResult');
+            try {
+                const response = await fetch(`${IPFS_API}/api/v0/ls?arg=${cid}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                const links = data.Objects?.[0]?.Links || [];
+                
+                if (links.length === 0) {
+                    resultDiv.innerHTML = '📁 Empty directory';
+                    return;
+                }
+                
+                resultDiv.className = 'result show success';
+                resultDiv.innerHTML = '📁 <strong>Directory contents:</strong>\n\n' + 
+                    links.map(l => 
+                        `<a class="cid-link" href="#" onclick="loadCID('${l.Hash}')">${l.Name || l.Hash}</a> (${l.Size} bytes)`
+                    ).join('\n');
+            } catch (err) {
+                showResult('retrieveResult', `Error listing directory: ${err.message}`, true);
+            }
+        }
+        
+        async function listPins() {
+            const resultDiv = document.getElementById('pinsList');
+            resultDiv.className = 'result show';
+            resultDiv.textContent = '⏳ Loading pins...';
+            
+            try {
+                const response = await fetch(`${IPFS_API}/api/v0/pin/ls?type=recursive`, {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                const pins = Object.keys(data.Keys || {});
+                
+                if (pins.length === 0) {
+                    resultDiv.textContent = 'No pinned content';
+                    return;
+                }
+                
+                resultDiv.innerHTML = pins.map(cid => 
+                    `<div class="pin-item">
+                        <a class="cid-link" href="#" onclick="loadCID('${cid}')">${cid}</a>
+                    </div>`
+                ).join('');
+            } catch (err) {
+                showResult('pinsList', `Error: ${err.message}`, true);
+            }
+        }
+        
+        function loadCID(cid) {
+            document.getElementById('cidInput').value = cid;
+            retrieveCID();
+            return false;
+        }
+        
+        function showResult(elementId, message, isError = false) {
+            const div = document.getElementById(elementId);
+            div.className = `result show ${isError ? 'error' : ''}`;
+            div.textContent = message;
+        }
+        
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('CID copied!');
+            });
+        }
+        
+        // Load pins on page load
+        listPins();
+    </script>
+</body>
+</html>

@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPFS Encrypted Storage</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #0d1117;
+            color: #c9d1d9;
+        }
+        h1 { color: #58a6ff; margin-bottom: 10px; }
+        .subtitle { color: #8b949e; margin-bottom: 30px; }
+        h2 { color: #8b949e; font-size: 1.1em; margin-top: 30px; margin-bottom: 15px; }
+        
+        .section {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .wallet-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px 20px;
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .wallet-info { display: flex; align-items: center; gap: 12px; }
+        .wallet-address { font-family: monospace; font-size: 14px; color: #58a6ff; }
+        .wallet-status { font-size: 13px; color: #8b949e; }
+        .wallet-status.ready { color: #7ee787; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: #f85149; }
+        .dot.connected { background: #7ee787; }
+        
+        textarea, input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #c9d1d9;
+            font-family: monospace;
+            font-size: 14px;
+            resize: vertical;
+        }
+        textarea { min-height: 100px; }
+        input[type="text"].filename { width: 200px; margin-right: 10px; }
+        
+        button {
+            background: #238636;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 10px;
+            margin-right: 10px;
+        }
+        button:hover { background: #2ea043; }
+        button:disabled { background: #30363d; cursor: not-allowed; }
+        button.secondary { background: #21262d; border: 1px solid #30363d; }
+        button.secondary:hover { background: #30363d; }
+        button.disconnect {
+            background: transparent;
+            border: 1px solid #f85149;
+            color: #f85149;
+            padding: 8px 16px;
+            font-size: 13px;
+        }
+        button.disconnect:hover { background: rgba(248, 81, 73, 0.1); }
+        button.small { padding: 6px 12px; font-size: 12px; margin: 0; }
+        
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 13px;
+            word-break: break-all;
+            white-space: pre-wrap;
+            display: none;
+        }
+        .result.show { display: block; }
+        .result.error { border-color: #f85149; color: #f85149; }
+        .result.success { border-color: #238636; }
+        
+        .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .row input[type="text"] { flex: 1; min-width: 200px; }
+        
+        .hidden { display: none !important; }
+        
+        .file-list { margin-top: 15px; }
+        .file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 15px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        .file-item:hover { border-color: #58a6ff; }
+        .file-name { color: #58a6ff; font-weight: 500; }
+        .file-meta { color: #8b949e; font-size: 12px; }
+        .file-cid { font-family: monospace; font-size: 11px; color: #8b949e; }
+        .deeplink { text-decoration: none; margin-left: 8px; opacity: 0.6; }
+        .deeplink:hover { opacity: 1; }
+        .file-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+        .delete-btn {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            opacity: 0.5;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: all 0.2s;
+            margin: 0;
+            margin-top: 0;
+            flex-shrink: 0;
+        }
+        .delete-btn:hover { opacity: 1; background: rgba(248, 81, 73, 0.2); }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+        }
+        
+        /* Mobile Responsive Styles */
+        @media (max-width: 600px) {
+            body {
+                padding: 12px;
+            }
+            
+            h1 {
+                font-size: 1.5em;
+                line-height: 1.2;
+            }
+            
+            .subtitle {
+                font-size: 13px;
+                margin-bottom: 20px;
+            }
+            
+            .wallet-bar {
+                flex-wrap: wrap;
+                gap: 10px;
+                padding: 12px;
+            }
+            
+            .wallet-info {
+                flex: 1;
+                min-width: 0;
+            }
+            
+            .wallet-address {
+                font-size: 13px;
+            }
+            
+            .section {
+                padding: 15px;
+            }
+            
+            h2 {
+                font-size: 1em;
+                margin-top: 20px;
+            }
+            
+            .file-item {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px;
+                padding: 12px;
+            }
+            
+            .file-item > div:first-child {
+                width: 100%;
+            }
+            
+            .file-name {
+                font-size: 15px;
+                word-break: break-word;
+                margin-bottom: 4px;
+            }
+            
+            .file-cid {
+                font-size: 11px;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+            
+            .file-actions {
+                display: flex;
+                width: 100%;
+                flex-direction: row;
+                justify-content: space-between;
+                align-items: center;
+                padding-top: 10px;
+                border-top: 1px solid #30363d;
+                margin-top: 2px;
+            }
+            
+            .file-actions .file-meta {
+                font-size: 12px;
+                flex: 1;
+            }
+            
+            .file-actions .delete-btn {
+                font-size: 20px;
+                padding: 6px 10px;
+                margin: 0 !important;
+                margin-top: 0 !important;
+                background: transparent;
+            }
+            
+            .row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .row input[type="text"] {
+                min-width: 100%;
+            }
+            
+            input[type="text"].filename {
+                width: 100%;
+                margin-right: 0;
+                margin-bottom: 8px;
+            }
+            
+            button {
+                padding: 12px 20px;
+                font-size: 15px;
+                width: 100%;
+                margin-right: 0;
+            }
+            
+            button.disconnect {
+                width: auto;
+                padding: 10px 16px;
+                margin: 0;
+                flex-shrink: 0;
+            }
+            
+            textarea {
+                min-height: 80px;
+                font-size: 14px;
+            }
+            
+            .result {
+                font-size: 12px;
+                padding: 12px;
+            }
+            
+            .api-link {
+                float: none;
+                display: block;
+                margin-bottom: 10px;
+                text-align: right;
+            }
+            color: #8b949e;
+        }
+        
+        .api-link {
+            float: right;
+            font-size: 12px;
+            color: #8b949e;
+        }
+        .api-link a { color: #58a6ff; text-decoration: none; }
+        .api-link a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="api-link"><a href="/doc">API Documentation</a></div>
+    <h1>🔐 IPFS Encrypted Storage</h1>
+    <p class="subtitle">Derive encryption key from wallet signature • Store encrypted data on IPFS • <a href="doc.html" style="color: #58a6ff;">Documentation</a></p>
+    
+    <!-- Wallet Bar -->
+    <div class="wallet-bar">
+        <div class="wallet-info">
+            <div class="dot" id="statusDot"></div>
+            <div>
+                <div class="wallet-address" id="walletAddress">Not connected</div>
+                <div class="wallet-status" id="walletStatus">Connect wallet to start</div>
+            </div>
+        </div>
+        <div>
+            <button id="connectBtn" onclick="connectWallet()">Connect X1 Wallet</button>
+            <button id="disconnectBtn" class="disconnect hidden" onclick="disconnectWallet()">Disconnect</button>
+        </div>
+    </div>
+    
+    <div id="mainContent" class="hidden">
+        <!-- My Files Section -->
+        <div class="section">
+            <h2>📁 My Encrypted Files</h2>
+            <div id="fileList" class="file-list">
+                <div class="empty-state">Loading...</div>
+            </div>
+        </div>
+        
+        <!-- Upload Section -->
+        <div class="section">
+            <h2>🔒 Encrypt & Upload</h2>
+            <div class="row" style="margin-bottom: 10px;">
+                <input type="text" id="fileName" class="filename" placeholder="File name (optional)">
+                <span style="color: #8b949e; font-size: 13px;">Leave blank to use CID suffix</span>
+            </div>
+            <textarea id="plaintext" placeholder="Enter data to encrypt..."></textarea>
+            <button onclick="encryptAndUpload()">Encrypt & Upload</button>
+            <div id="encryptResult" class="result"></div>
+        </div>
+        
+        <!-- Decrypt Section -->
+        <div class="section">
+            <h2>🔓 Decrypt File</h2>
+            <div class="row">
+                <input type="text" id="decryptCid" placeholder="Enter CID or click a file above">
+                <button onclick="retrieveAndDecrypt()">Decrypt</button>
+            </div>
+            <div id="decryptResult" class="result"></div>
+        </div>
+    </div>
+    
+    <div id="connectPrompt" class="section">
+        <h2>👛 Connect Your Wallet</h2>
+        <p style="color: #8b949e;">Connect your wallet to derive a unique encryption key and access your files.</p>
+        <p style="color: #8b949e; font-size: 13px; margin-top: 15px;">Supported: X1 Wallet, Phantom, Backpack</p>
+    </div>
+
+    <script>
+        let wallet = null;
+        let publicKey = null;
+        let derivedKey = null;
+        let walletType = null;
+        let x1WalletProvider = null;
+        const IPFS_API = '/api/v0';
+        const INDEX_API = '/index';
+        const DERIVATION_MSG = 'IPFS_ENCRYPTION_KEY_V1';
+        
+        // Initialize on page load
+        window.addEventListener('load', async () => {
+            console.log('[IPFS Crypto] Page loaded');
+            await new Promise(r => setTimeout(r, 800));
+            await restoreSession();
+        });
+        
+        function detectWallet() {
+            console.log('[Wallet] Detecting...');
+            
+            if (window.x1_wallet) {
+                return { provider: window.x1_wallet, type: 'x1_wallet', name: 'X1 Wallet' };
+            }
+            if (window.x1Solana) {
+                return { provider: window.x1Solana, type: 'x1_wallet', name: 'X1 Wallet' };
+            }
+            if (window.x1) {
+                return { provider: window.x1, type: 'x1_wallet', name: 'X1 Wallet' };
+            }
+            if (window.solana && window.solana.isX1) {
+                return { provider: window.solana, type: 'x1_wallet', name: 'X1 Wallet' };
+            }
+            if (window.solana && !window.solana.isPhantom && !window.solana.isBackpack && !window.phantom) {
+                return { provider: window.solana, type: 'x1_wallet', name: 'X1 Wallet' };
+            }
+            if (window.solana && window.solana.isPhantom !== true && window.solana.publicKey) {
+                return { provider: window.solana, type: 'x1_wallet', name: 'X1 Wallet' };
+            }
+            if (window.backpack) {
+                return { provider: window.backpack, type: 'backpack', name: 'Backpack' };
+            }
+            if (window.phantom?.solana) {
+                return { provider: window.phantom.solana, type: 'phantom', name: 'Phantom' };
+            }
+            if (window.solana?.isPhantom) {
+                return { provider: window.solana, type: 'phantom', name: 'Phantom' };
+            }
+            return null;
+        }
+        
+        async function restoreSession() {
+            const detected = detectWallet();
+            if (!detected) {
+                showDisconnected();
+                return;
+            }
+            
+            document.getElementById('connectBtn').textContent = `Connect ${detected.name}`;
+            
+            if (detected.provider.publicKey) {
+                wallet = detected.provider;
+                walletType = detected.type;
+                publicKey = detected.provider.publicKey.toString();
+                
+                updateStatus('Restoring session...', false);
+                
+                try {
+                    await deriveKey();
+                    showConnected();
+                    loadMyFiles();
+                } catch (err) {
+                    console.error('[Restore] Failed:', err);
+                    updateStatus('Click Connect to sign', false);
+                }
+                return;
+            }
+            
+            setupAccountListener(detected.provider, detected.type, detected.name);
+            showDisconnected();
+        }
+        
+        let derivingKey = false;  // Prevent duplicate sign requests
+        let lastDerivedPubkey = null;  // Track which pubkey we derived for
+        
+        function setupAccountListener(provider, type, name) {
+            if (typeof provider.on !== 'function') return;
+            
+            provider.on('accountChanged', async (newPublicKey) => {
+                if (!newPublicKey) {
+                    disconnectWallet();
+                    return;
+                }
+                const newPk = newPublicKey.toString();
+                // Skip if same pubkey and already have key
+                if (newPk === lastDerivedPubkey && derivedKey) {
+                    console.log('[Wallet] accountChanged but key already derived, skipping');
+                    return;
+                }
+                publicKey = newPk;
+                wallet = provider;
+                walletType = type;
+                if (!derivingKey) {
+                    try {
+                        await deriveKey();
+                        showConnected();
+                        loadMyFiles();
+                    } catch (err) {
+                        updateStatus('Failed to derive key', true);
+                    }
+                }
+            });
+            
+            provider.on('connect', async () => {
+                // Skip if already deriving or already have key
+                if (derivingKey || derivedKey) return;
+                if (provider.publicKey) {
+                    publicKey = provider.publicKey.toString();
+                    wallet = provider;
+                    walletType = type;
+                    try {
+                        await deriveKey();
+                        showConnected();
+                        loadMyFiles();
+                    } catch (err) {}
+                }
+            });
+        }
+        
+        async function connectWallet() {
+            const detected = detectWallet();
+            if (!detected) {
+                alert('No wallet detected.');
+                return;
+            }
+            
+            try {
+                updateStatus(`Connecting ${detected.name}...`, false);
+                wallet = detected.provider;
+                walletType = detected.type;
+                
+                const resp = await wallet.connect();
+                publicKey = (resp?.publicKey || wallet.publicKey).toString();
+                
+                updateStatus('Deriving encryption key...', false);
+                await deriveKey();
+                
+                setupAccountListener(wallet, walletType, detected.name);
+                showConnected();
+                loadMyFiles();
+                
+            } catch (err) {
+                console.error('[Connect] Error:', err);
+                updateStatus('Failed: ' + err.message, true);
+                wallet = null;
+                publicKey = null;
+                derivedKey = null;
+            }
+        }
+        
+        async function deriveKey() {
+            if (derivingKey) {
+                console.log('[Wallet] deriveKey already in progress, skipping');
+                return;
+            }
+            derivingKey = true;
+            
+            try {
+                const encodedMsg = new TextEncoder().encode(DERIVATION_MSG);
+                const signResult = await wallet.signMessage(encodedMsg, 'utf8');
+                
+                let signatureBytes;
+                if (signResult instanceof Uint8Array) {
+                    signatureBytes = signResult;
+                } else if (signResult.signature) {
+                    if (typeof signResult.signature === 'string') {
+                        const binary = atob(signResult.signature);
+                        signatureBytes = new Uint8Array(binary.length);
+                        for (let i = 0; i < binary.length; i++) {
+                            signatureBytes[i] = binary.charCodeAt(i);
+                        }
+                    } else {
+                        signatureBytes = new Uint8Array(signResult.signature);
+                    }
+                } else if (typeof signResult === 'string') {
+                    const binary = atob(signResult);
+                    signatureBytes = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i++) {
+                        signatureBytes[i] = binary.charCodeAt(i);
+                    }
+                } else {
+                    throw new Error('Unexpected signature format');
+                }
+                
+                const hashBuffer = await crypto.subtle.digest('SHA-256', signatureBytes);
+                derivedKey = await crypto.subtle.importKey('raw', hashBuffer, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+                lastDerivedPubkey = publicKey;  // Track which pubkey we derived for
+            } finally {
+                derivingKey = false;
+            }
+        }
+        
+        function disconnectWallet() {
+            if (wallet?.disconnect) wallet.disconnect();
+            wallet = null;
+            publicKey = null;
+            derivedKey = null;
+            walletType = null;
+            showDisconnected();
+        }
+        
+        function showConnected() {
+            document.getElementById('walletAddress').textContent = publicKey.slice(0, 8) + '...' + publicKey.slice(-6);
+            document.getElementById('statusDot').classList.add('connected');
+            document.getElementById('walletStatus').textContent = '🔑 Key ready';
+            document.getElementById('walletStatus').classList.add('ready');
+            document.getElementById('connectBtn').classList.add('hidden');
+            document.getElementById('disconnectBtn').classList.remove('hidden');
+            document.getElementById('mainContent').classList.remove('hidden');
+            document.getElementById('connectPrompt').classList.add('hidden');
+        }
+        
+        function showDisconnected() {
+            document.getElementById('walletAddress').textContent = 'Not connected';
+            document.getElementById('statusDot').classList.remove('connected');
+            document.getElementById('walletStatus').textContent = 'Connect wallet to start';
+            document.getElementById('walletStatus').classList.remove('ready');
+            document.getElementById('connectBtn').classList.remove('hidden');
+            document.getElementById('disconnectBtn').classList.add('hidden');
+            document.getElementById('mainContent').classList.add('hidden');
+            document.getElementById('connectPrompt').classList.remove('hidden');
+        }
+        
+        function updateStatus(message, isError) {
+            const el = document.getElementById('walletStatus');
+            el.textContent = message;
+            el.style.color = isError ? '#f85149' : '#8b949e';
+        }
+        
+        async function loadMyFiles() {
+            const listEl = document.getElementById('fileList');
+            listEl.innerHTML = '<div class="empty-state">Loading...</div>';
+            
+            try {
+                const resp = await fetch(`${INDEX_API}/files?pubkey=${publicKey}`);
+                const data = await resp.json();
+                
+                if (data.files && data.files.length > 0) {
+                    listEl.innerHTML = data.files.map(f => `
+                        <div class="file-item" onclick="selectFile('${f.cid}')">
+                            <div>
+                                <div class="file-name">${escapeHtml(displayFilename(f.filename))}</div>
+                                <div class="file-cid" title="${f.cid}">
+                                    <span class="cid-short">${f.cid.slice(0, 12)}...${f.cid.slice(-6)}</span>
+                                    <a href="https://ipfs.io/ipfs/${f.cid}" target="_blank" onclick="event.stopPropagation()" class="deeplink" title="Open on IPFS gateway">🔗</a>
+                                </div>
+                            </div>
+                            <div class="file-actions">
+                                <span class="file-meta">${formatSize(f.size)} • ${formatDate(f.created_at)}</span>
+                                <button class="delete-btn" onclick="event.stopPropagation(); deleteFile('${f.cid}')" title="Delete file">🗑️</button>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    listEl.innerHTML = '<div class="empty-state">No files yet. Upload your first encrypted file!</div>';
+                }
+            } catch (err) {
+                listEl.innerHTML = '<div class="empty-state">Failed to load files</div>';
+            }
+        }
+        
+        function selectFile(cid) {
+            document.getElementById('decryptCid').value = cid;
+            retrieveAndDecrypt(cid);
+            // Scroll to decrypt result
+            document.getElementById('decryptResult').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        
+        async function deleteFile(cid) {
+            if (!confirm('Delete this file?\\n\\nThis will:\\n• Remove from your file list\\n• Unpin from IPFS (data may be garbage collected)')) {
+                return;
+            }
+            
+            try {
+                const resp = await fetch(`${INDEX_API}/file/${cid}`, {
+                    method: 'DELETE',
+                    headers: { 'X-Pubkey': publicKey }
+                });
+                
+                const result = await resp.json();
+                
+                if (result.success) {
+                    loadMyFiles();  // Refresh list
+                } else {
+                    alert('Failed to delete: ' + (result.error || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Delete failed: ' + err.message);
+            }
+        }
+        
+        // Strip CID prefix (8 chars + hyphen) from display filename
+        function displayFilename(filename) {
+            // Pattern: 8 alphanumeric chars followed by hyphen
+            return filename.replace(/^[A-Za-z0-9]{8}-/, '');
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function formatSize(bytes) {
+            if (!bytes) return '—';
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+        
+        function formatDate(dateStr) {
+            if (!dateStr) return '';
+            const d = new Date(dateStr);
+            return d.toLocaleDateString();
+        }
+        
+        async function encryptAndUpload() {
+            if (!derivedKey) { alert('Connect wallet first'); return; }
+            
+            const plaintext = document.getElementById('plaintext').value;
+            if (!plaintext) { showResult('encryptResult', 'Enter data to encrypt', true); return; }
+            
+            const filename = document.getElementById('fileName').value.trim();
+            
+            try {
+                showResult('encryptResult', '⏳ Encrypting...', false);
+                
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const ciphertext = await crypto.subtle.encrypt(
+                    { name: 'AES-GCM', iv },
+                    derivedKey,
+                    new TextEncoder().encode(plaintext)
+                );
+                
+                const combined = new Uint8Array(iv.length + ciphertext.byteLength);
+                combined.set(iv);
+                combined.set(new Uint8Array(ciphertext), iv.length);
+                
+                const pkg = {
+                    version: 1,
+                    algorithm: 'AES-256-GCM',
+                    wallet: publicKey,
+                    derivationMsg: DERIVATION_MSG,
+                    data: btoa(String.fromCharCode(...combined))
+                };
+                
+                showResult('encryptResult', '⏳ Uploading...', false);
+                
+                const formData = new FormData();
+                formData.append('file', new Blob([JSON.stringify(pkg)], { type: 'application/json' }));
+                
+                const resp = await fetch(`${IPFS_API}/add?pin=true`, {
+                    method: 'POST',
+                    headers: {
+                        'X-Pubkey': publicKey,
+                        'X-Filename': filename || ''
+                    },
+                    body: formData
+                });
+                
+                const result = await resp.json();
+                const indexedFilename = result.IndexedFilename || `${result.Hash.slice(-8)}-${filename || 'file'}`;
+                
+                showResult('encryptResult', `✅ Uploaded!\n\nCID: ${result.Hash}\nFilename: ${indexedFilename}`, false);
+                document.getElementById('encryptResult').classList.add('success');
+                document.getElementById('fileName').value = '';
+                document.getElementById('plaintext').value = '';
+                
+                loadMyFiles();
+                
+            } catch (err) {
+                showResult('encryptResult', `Error: ${err.message}`, true);
+            }
+        }
+        
+        async function retrieveAndDecrypt(cidParam) {
+            if (!derivedKey) { alert('Connect wallet first'); return; }
+            
+            const cid = cidParam || document.getElementById('decryptCid').value.trim();
+            if (!cid) { showResult('decryptResult', 'Enter a CID', true); return; }
+            
+            try {
+                showResult('decryptResult', '⏳ Retrieving...', false);
+                
+                const resp = await fetch(`${IPFS_API}/cat?arg=${cid}`, { method: 'POST' });
+                const text = await resp.text();
+                
+                let pkg;
+                try { pkg = JSON.parse(text); } catch { throw new Error('Invalid format'); }
+                
+                if (pkg.version !== 1) throw new Error('Unsupported version');
+                
+                showResult('decryptResult', '⏳ Decrypting...', false);
+                
+                const combined = Uint8Array.from(atob(pkg.data), c => c.charCodeAt(0));
+                const decrypted = await crypto.subtle.decrypt(
+                    { name: 'AES-GCM', iv: combined.slice(0, 12) },
+                    derivedKey,
+                    combined.slice(12)
+                );
+                
+                const plaintext = new TextDecoder().decode(decrypted);
+                
+                showResult('decryptResult', `✅ Decrypted:\n\n${plaintext}`, false);
+                document.getElementById('decryptResult').classList.add('success');
+                
+            } catch (err) {
+                if (err.name === 'OperationError') {
+                    showResult('decryptResult', '❌ Wrong wallet — cannot decrypt', true);
+                } else {
+                    showResult('decryptResult', `Error: ${err.message}`, true);
+                }
+            }
+        }
+        
+        function showResult(id, msg, isError) {
+            const el = document.getElementById(id);
+            el.className = `result show ${isError ? 'error' : ''}`;
+            el.textContent = msg;
+        }
+    </script>
+</body>
+</html>

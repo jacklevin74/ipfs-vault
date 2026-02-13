@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>X1 Vault — Documentation</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #0d1117;
+            color: #c9d1d9;
+            line-height: 1.6;
+        }
+        h1 { color: #58a6ff; margin-bottom: 10px; }
+        h2 { color: #58a6ff; margin-top: 40px; border-bottom: 1px solid #30363d; padding-bottom: 10px; }
+        h3 { color: #8b949e; margin-top: 30px; }
+        .subtitle { color: #8b949e; margin-bottom: 30px; font-size: 1.1em; }
+        
+        a { color: #58a6ff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        
+        code {
+            background: #161b22;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.9em;
+        }
+        
+        pre {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            font-size: 14px;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        .section {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            text-align: left;
+            padding: 12px;
+            border: 1px solid #30363d;
+        }
+        th { background: #161b22; color: #58a6ff; }
+        
+        .highlight { color: #7ee787; }
+        .warning { color: #f0883e; }
+        .nav { margin-bottom: 30px; }
+        .nav a { margin-right: 20px; }
+        
+        .diagram {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 20px;
+            font-family: monospace;
+            white-space: pre;
+            overflow-x: auto;
+            line-height: 1.4;
+        }
+        
+        @media (max-width: 600px) {
+            body { padding: 12px; }
+            pre { font-size: 12px; padding: 12px; }
+            table { font-size: 14px; }
+            th, td { padding: 8px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="nav">
+        <a href="/crypto.html">← Back to App</a>
+    </div>
+    
+    <h1>🔐 X1 Vault</h1>
+    <p class="subtitle">Encrypted IPFS storage using wallet-derived keys</p>
+    
+    <div class="section">
+        <strong>What is X1 Vault?</strong>
+        <p>A decentralized encrypted storage system where your Solana/X1 wallet IS your encryption key. Files are encrypted client-side before upload — the server never sees your data.</p>
+        <ul>
+            <li><span class="highlight">✓</span> End-to-end encryption (AES-256-GCM)</li>
+            <li><span class="highlight">✓</span> No accounts or passwords</li>
+            <li><span class="highlight">✓</span> Only your wallet can decrypt your files</li>
+            <li><span class="highlight">✓</span> Files stored on IPFS (content-addressed, permanent)</li>
+        </ul>
+    </div>
+    
+    <h2>How It Works</h2>
+    
+    <div class="diagram">
+┌─────────────────────────────────────────────────────────────────┐
+│                        ENCRYPTION FLOW                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. Sign Message          2. Derive Key           3. Encrypt   │
+│  ┌──────────────┐        ┌──────────────┐       ┌────────────┐ │
+│  │    Wallet    │───────▶│   SHA-256    │──────▶│ AES-256-GCM│ │
+│  │   signs:     │        │   (hash)     │       │            │ │
+│  │ "IPFS_ENC.." │        └──────────────┘       └────────────┘ │
+│  └──────────────┘              │                      │        │
+│         │                      │                      ▼        │
+│         │                      │               ┌────────────┐  │
+│         ▼                      ▼               │  Encrypted │  │
+│    Signature (64 bytes)   AES Key (32 bytes)   │    JSON    │  │
+│                                                └────────────┘  │
+│                                                      │         │
+│  4. Upload to IPFS                                   ▼         │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  { version, algorithm, wallet, derivationMsg, data }    │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+    </div>
+    
+    <h3>Key Derivation</h3>
+    <ol>
+        <li>Your wallet signs the message: <code>IPFS_ENCRYPTION_KEY_V1</code></li>
+        <li>The signature is hashed with SHA-256 → 32-byte AES key</li>
+        <li>This key encrypts/decrypts all your files</li>
+        <li><strong>Same wallet = Same key = Access to all your files</strong></li>
+    </ol>
+    
+    <h3>File Format</h3>
+    <pre><code>{
+  "version": 1,
+  "algorithm": "AES-256-GCM",
+  "wallet": "YourPublicKeyBase58...",
+  "derivationMsg": "IPFS_ENCRYPTION_KEY_V1",
+  "data": "base64(IV + ciphertext + authTag)"
+}</code></pre>
+    
+    <p>The <code>data</code> field contains:</p>
+    <ul>
+        <li>12 bytes: Random IV (initialization vector)</li>
+        <li>N bytes: Encrypted content</li>
+        <li>16 bytes: GCM authentication tag</li>
+    </ul>
+    
+    <h2>API Reference</h2>
+    
+    <table>
+        <tr>
+            <th>Endpoint</th>
+            <th>Method</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td><code>/api/v0/add?pin=true</code></td>
+            <td>POST</td>
+            <td>Upload file (multipart form, set <code>X-Pubkey</code> and <code>X-Filename</code> headers)</td>
+        </tr>
+        <tr>
+            <td><code>/index/files?pubkey=X</code></td>
+            <td>GET</td>
+            <td>List all files for a wallet</td>
+        </tr>
+        <tr>
+            <td><code>/index/file/{cid}</code></td>
+            <td>GET</td>
+            <td>Get file metadata</td>
+        </tr>
+        <tr>
+            <td><code>/index/file/{cid}</code></td>
+            <td>DELETE</td>
+            <td>Remove from index (set <code>X-Pubkey</code> header)</td>
+        </tr>
+    </table>
+    
+    <h3>Upload Example (curl)</h3>
+    <pre><code>curl -X POST "https://vault.x1.xyz/ipfs/api/v0/add?pin=true" \
+  -H "X-Pubkey: YourWalletPublicKey" \
+  -H "X-Filename: myfile.txt" \
+  -F "file=@encrypted.json"</code></pre>
+    
+    <h3>Response</h3>
+    <pre><code>{"Name":"myfile.txt","Hash":"QmXxx...","Size":"1234"}</code></pre>
+    
+    <h2>CLI Usage (For Bots & Agents)</h2>
+    
+    <div class="section">
+        <p><strong>Private key is loaded from disk</strong> — no interactive wallet needed. Perfect for automated scripts, AI agents, and server-side applications.</p>
+        <p>Key file format (either works):</p>
+        <pre><code># .env format
+SOLANA_PRIVATE_KEY=YourBase58PrivateKey...
+
+# Or raw base58 key (no prefix)</code></pre>
+    </div>
+    
+    <h3>Node.js</h3>
+    <pre><code>npm install @solana/web3.js tweetnacl bs58 form-data</code></pre>
+    
+    <pre><code>#!/usr/bin/env node
+const fs = require('fs');
+const crypto = require('crypto');
+const { Keypair } = require('@solana/web3.js');
+const nacl = require('tweetnacl');
+const bs58 = require('bs58');
+
+const VAULT_URL = 'https://vault.x1.xyz/ipfs';
+const DERIVATION_MSG = 'IPFS_ENCRYPTION_KEY_V1';
+
+async function upload(keyPath, filename, data) {
+    // Load key
+    const keyFile = fs.readFileSync(keyPath, 'utf8');
+    const match = keyFile.match(/SOLANA_PRIVATE_KEY=([^\s\n]+)/);
+    const secretKey = bs58.decode(match ? match[1] : keyFile.trim());
+    const keypair = Keypair.fromSecretKey(secretKey);
+    const publicKey = keypair.publicKey.toBase58();
+
+    // Derive AES key
+    const sig = nacl.sign.detached(Buffer.from(DERIVATION_MSG), keypair.secretKey);
+    const aesKey = crypto.createHash('sha256').update(sig).digest();
+
+    // Encrypt
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', aesKey, iv);
+    const encrypted = Buffer.concat([cipher.update(data, 'utf8'), cipher.final()]);
+    const combined = Buffer.concat([iv, encrypted, cipher.getAuthTag()]);
+
+    // Build payload
+    const payload = JSON.stringify({
+        version: 1, algorithm: 'AES-256-GCM', wallet: publicKey,
+        derivationMsg: DERIVATION_MSG, data: combined.toString('base64')
+    });
+
+    // Upload
+    const FormData = require('form-data');
+    const form = new FormData();
+    form.append('file', Buffer.from(payload), { filename: 'encrypted.json' });
+
+    const resp = await fetch(`${VAULT_URL}/api/v0/add?pin=true`, {
+        method: 'POST',
+        headers: { 'X-Pubkey': publicKey, 'X-Filename': filename, ...form.getHeaders() },
+        body: form
+    });
+    return JSON.parse((await resp.text()).split('\n')[0]);
+}
+
+// Usage: upload('~/.env', 'file.txt', 'Hello world')</code></pre>
+
+    <h3>Python</h3>
+    <pre><code>pip install pynacl base58 cryptography requests</code></pre>
+    
+    <pre><code>import os, json, base64, hashlib
+from nacl.signing import SigningKey
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+import base58, requests
+
+VAULT_URL = 'https://vault.x1.xyz/ipfs'
+DERIVATION_MSG = b'IPFS_ENCRYPTION_KEY_V1'
+
+def upload(key_path, filename, data):
+    # Load key
+    with open(os.path.expanduser(key_path)) as f:
+        content = f.read()
+    import re
+    match = re.search(r'SOLANA_PRIVATE_KEY=([^\s\n]+)', content)
+    secret = base58.b58decode(match.group(1) if match else content.strip())
+    
+    signing_key = SigningKey(secret[:32])
+    public_key = base58.b58encode(bytes(signing_key.verify_key)).decode()
+    
+    # Derive AES key
+    signature = signing_key.sign(DERIVATION_MSG).signature
+    aes_key = hashlib.sha256(signature).digest()
+    
+    # Encrypt
+    iv = os.urandom(12)
+    aesgcm = AESGCM(aes_key)
+    ciphertext = aesgcm.encrypt(iv, data.encode(), None)
+    combined = base64.b64encode(iv + ciphertext).decode()
+    
+    # Build payload
+    payload = json.dumps({
+        'version': 1, 'algorithm': 'AES-256-GCM', 'wallet': public_key,
+        'derivationMsg': 'IPFS_ENCRYPTION_KEY_V1', 'data': combined
+    })
+    
+    # Upload
+    resp = requests.post(
+        f'{VAULT_URL}/api/v0/add?pin=true',
+        headers={'X-Pubkey': public_key, 'X-Filename': filename},
+        files={'file': ('encrypted.json', payload)}
+    )
+    return resp.json()
+
+# Usage: upload('~/.env', 'file.txt', 'Hello world')</code></pre>
+
+    <h2>Browser Usage</h2>
+    
+    <pre><code>class VaultClient {
+    constructor(baseUrl = 'https://vault.x1.xyz/ipfs') {
+        this.baseUrl = baseUrl;
+        this.publicKey = null;
+        this.derivedKey = null;
+    }
+
+    async connect() {
+        const provider = window.x1_wallet || window.phantom?.solana || window.solana;
+        if (!provider) throw new Error('No wallet');
+        
+        await provider.connect();
+        this.publicKey = provider.publicKey.toString();
+        
+        const sig = await provider.signMessage(
+            new TextEncoder().encode('IPFS_ENCRYPTION_KEY_V1'), 'utf8'
+        );
+        const sigBytes = sig instanceof Uint8Array ? sig : new Uint8Array(sig.signature);
+        const hash = await crypto.subtle.digest('SHA-256', sigBytes);
+        this.derivedKey = await crypto.subtle.importKey(
+            'raw', hash, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+        );
+    }
+
+    async upload(content, filename) {
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const data = new TextEncoder().encode(content);
+        const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, this.derivedKey, data);
+        const combined = new Uint8Array(iv.length + encrypted.byteLength);
+        combined.set(iv);
+        combined.set(new Uint8Array(encrypted), iv.length);
+
+        const payload = JSON.stringify({
+            version: 1, algorithm: 'AES-256-GCM', wallet: this.publicKey,
+            derivationMsg: 'IPFS_ENCRYPTION_KEY_V1',
+            data: btoa(String.fromCharCode(...combined))
+        });
+
+        const form = new FormData();
+        form.append('file', new Blob([payload]));
+        const resp = await fetch(`${this.baseUrl}/api/v0/add?pin=true`, {
+            method: 'POST',
+            headers: { 'X-Pubkey': this.publicKey, 'X-Filename': filename },
+            body: form
+        });
+        return JSON.parse((await resp.text()).split('\n')[0]);
+    }
+
+    async decrypt(cid) {
+        const resp = await fetch(`https://ipfs.io/ipfs/${cid}`);
+        const json = await resp.json();
+        if (json.wallet !== this.publicKey) throw new Error('Wrong wallet');
+        
+        const combined = Uint8Array.from(atob(json.data), c => c.charCodeAt(0));
+        const decrypted = await crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv: combined.slice(0, 12) },
+            this.derivedKey, combined.slice(12)
+        );
+        return new TextDecoder().decode(decrypted);
+    }
+}
+
+// Usage:
+// const vault = new VaultClient();
+// await vault.connect();
+// const result = await vault.upload('Hello', 'hello.txt');
+// console.log(result.Hash);
+</code></pre>
+
+    <h2>For AI Agents & Bots</h2>
+    
+    <div class="section">
+        <p>X1 Vault is designed for <strong>automated, non-interactive use</strong>. Your agent reads the private key from disk — no wallet popup, no user interaction.</p>
+        
+        <h3>Quick Integration</h3>
+        <pre><code># Store your agent's wallet key
+echo "SOLANA_PRIVATE_KEY=YourBase58Key..." > ~/.agent-wallet.env
+
+# Upload encrypted file
+node ipfs-upload.js ~/.agent-wallet.env memory.md "$(cat memory.md)"
+
+# Or with Python
+python3 upload.py ~/.agent-wallet.env notes.txt "Agent notes here"</code></pre>
+        
+        <h3>Why This Works for Agents</h3>
+        <ul>
+            <li><span class="highlight">✓</span> <strong>No browser required</strong> — pure CLI/script operation</li>
+            <li><span class="highlight">✓</span> <strong>Key from file</strong> — works in headless environments</li>
+            <li><span class="highlight">✓</span> <strong>Same encryption</strong> — compatible with web UI</li>
+            <li><span class="highlight">✓</span> <strong>Deterministic key derivation</strong> — same wallet = same encryption key every time</li>
+        </ul>
+        
+        <h3>Multi-Agent Setup</h3>
+        <p>Each agent gets its own wallet. Files are isolated by wallet — Agent A cannot decrypt Agent B's files.</p>
+        <pre><code># Agent A's files
+python3 upload.py /keys/agent-a.env data.json "..."
+
+# Agent B's files (separate wallet, separate encryption)
+python3 upload.py /keys/agent-b.env data.json "..."</code></pre>
+    </div>
+
+    <h2>Security Model</h2>
+    
+    <div class="section">
+        <h3>What's Protected</h3>
+        <ul>
+            <li><span class="highlight">✓</span> File contents are encrypted before leaving your device</li>
+            <li><span class="highlight">✓</span> Only your wallet's signature can derive the decryption key</li>
+            <li><span class="highlight">✓</span> Each file has a unique random IV (no pattern analysis)</li>
+            <li><span class="highlight">✓</span> GCM mode provides authenticated encryption (tamper detection)</li>
+        </ul>
+        
+        <h3>What's Visible</h3>
+        <ul>
+            <li><span class="warning">⚠</span> Your wallet public key (who owns the file)</li>
+            <li><span class="warning">⚠</span> File size (encrypted size ≈ original size)</li>
+            <li><span class="warning">⚠</span> Upload timestamp (from index)</li>
+            <li><span class="warning">⚠</span> Filename (if provided — consider omitting for sensitive files)</li>
+        </ul>
+        
+        <h3>Trust Model</h3>
+        <p>The server only stores ciphertext. It cannot:</p>
+        <ul>
+            <li>Read your file contents</li>
+            <li>Derive your encryption key</li>
+            <li>Decrypt without your wallet</li>
+        </ul>
+        <p>However, the server <em>can</em> delete files or refuse to serve them. For maximum resilience, pin your CIDs to multiple IPFS nodes.</p>
+    </div>
+
+    <h2>Supported Wallets</h2>
+    <ul>
+        <li><strong>X1 Wallet</strong> — Recommended for X1 chain</li>
+        <li><strong>Phantom</strong> — Popular Solana wallet</li>
+        <li><strong>Backpack</strong> — Multi-chain wallet</li>
+        <li>Any wallet supporting <code>signMessage()</code></li>
+    </ul>
+
+    <h2>FAQ</h2>
+    
+    <h3>Can I decrypt on a different device?</h3>
+    <p>Yes! As long as you have access to the same wallet (same private key), you can decrypt your files from any device.</p>
+    
+    <h3>What if I lose my wallet?</h3>
+    <p>If you lose access to your wallet's private key, your encrypted files are <strong>permanently inaccessible</strong>. There is no recovery mechanism — this is by design.</p>
+    
+    <h3>Can someone else decrypt my files if they know the CID?</h3>
+    <p>No. They can download the encrypted JSON, but without your wallet's signature, they cannot derive the decryption key.</p>
+    
+    <h3>Is the filename encrypted?</h3>
+    <p>No. Filenames are stored in plaintext in the index. For sensitive files, use generic names or leave the filename empty (the system will use the CID).</p>
+
+    <footer style="margin-top: 60px; padding-top: 20px; border-top: 1px solid #30363d; color: #8b949e; font-size: 14px;">
+        <p>Built on <a href="https://x1.xyz">X1</a> • <a href="/crypto.html">Open App</a> • <a href="https://github.com/x1-labs">GitHub</a></p>
+    </footer>
+</body>
+</html>
