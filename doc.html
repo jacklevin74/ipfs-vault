@@ -90,11 +90,12 @@
 </head>
 <body>
     <div class="nav">
-        <a href="/crypto.html">← Back to App</a>
+        <a href="crypto.html">Upload</a>
+        <a href="browse.html">Browse Files</a>
     </div>
     
     <h1>🔐 X1 Vault</h1>
-    <p class="subtitle">Encrypted IPFS storage using wallet-derived keys • <a href="whitepaper.pdf" target="_blank" style="color: #58a6ff;">Whitepaper (PDF)</a></p>
+    <p class="subtitle">Encrypted IPFS storage using wallet-derived keys</p>
     
     <div class="section">
         <strong>What is X1 Vault?</strong>
@@ -158,6 +159,49 @@
         <li>16 bytes: GCM authentication tag</li>
     </ul>
     
+    <h2>File Browser</h2>
+    
+    <div class="section">
+        <p>The <a href="browse.html">File Browser</a> lets you explore your encrypted files with a familiar directory structure.</p>
+        
+        <h3>Features</h3>
+        <ul>
+            <li><span class="highlight">✓</span> <strong>My Files</strong> — View all your encrypted files organized by directory</li>
+            <li><span class="highlight">✓</span> <strong>Directory Navigation</strong> — Click folders to descend, breadcrumb to go back</li>
+            <li><span class="highlight">✓</span> <strong>In-Browser Decryption</strong> — View file contents without downloading</li>
+            <li><span class="highlight">✓</span> <strong>Browse Any CID</strong> — Explore any IPFS directory by CID</li>
+            <li><span class="highlight">✓</span> <strong>Download Decrypted</strong> — Download files decrypted to plaintext</li>
+        </ul>
+    </div>
+    
+    <h3>Directory Organization</h3>
+    <p>Files are organized into directories based on their filename paths. Upload with paths like <code>docs/README.md</code> or <code>src/main.py</code> to create folder structure.</p>
+    
+    <pre><code># Files with paths create directories:
+docs/SOUL.md        → 📂 docs/
+docs/README.md      →    ├── SOUL.md
+layers/action.py    →    └── README.md
+layers/memory.py    → 📂 layers/
+config.json         →    ├── action.py
+                    →    └── memory.py
+                    → 📄 config.json</code></pre>
+
+    <h3>Directory Upload (CLI)</h3>
+    <p>Upload entire directories with preserved structure:</p>
+    
+    <pre><code># Upload a directory (encrypts all files)
+python3 upload-dir.py ~/my-project/
+
+# Upload without encryption (public files)
+python3 upload-dir.py --plain ~/my-project/
+
+# Output:
+# Uploading: my-project/src/main.py
+# Uploading: my-project/docs/README.md
+# ...
+# Directory CID: QmXxx...
+# Browse at: https://vault.x1.xyz/ipfs/browse.html?cid=QmXxx...</code></pre>
+
     <h2>API Reference</h2>
     
     <table>
@@ -169,7 +213,7 @@
         <tr>
             <td><code>/api/v0/add?pin=true</code></td>
             <td>POST</td>
-            <td>Upload file (multipart form). Headers: <code>X-Pubkey</code>, <code>X-Filename</code>, <code>X-Content-MD5</code> (MD5 of plaintext before encryption)</td>
+            <td>Upload file (multipart form, set <code>X-Pubkey</code> and <code>X-Filename</code> headers)</td>
         </tr>
         <tr>
             <td><code>/index/files?pubkey=X</code></td>
@@ -187,9 +231,14 @@
             <td>Remove from index (set <code>X-Pubkey</code> header)</td>
         </tr>
         <tr>
-            <td><code>/index/checksums?pubkey=X</code></td>
-            <td>GET</td>
-            <td>List MD5 checksums for all files (optional <code>pubkey</code> filter)</td>
+            <td><code>/api/v0/ls?arg={cid}</code></td>
+            <td>POST</td>
+            <td>List directory contents (for IPFS directory CIDs)</td>
+        </tr>
+        <tr>
+            <td><code>/api/v0/cat?arg={cid}</code></td>
+            <td>POST</td>
+            <td>Get raw file content</td>
         </tr>
     </table>
     
@@ -197,33 +246,10 @@
     <pre><code>curl -X POST "https://vault.x1.xyz/ipfs/api/v0/add?pin=true" \
   -H "X-Pubkey: YourWalletPublicKey" \
   -H "X-Filename: myfile.txt" \
-  -H "X-Content-MD5: $(md5sum plaintext.txt | cut -d' ' -f1)" \
   -F "file=@encrypted.json"</code></pre>
     
     <h3>Response</h3>
-    <pre><code>{"Name":"myfile.txt","Hash":"QmXxx...","Size":"1234","MD5":"d41d8cd98f00b204e9800998ecf8427e"}</code></pre>
-
-    <h3>Checksums Example (curl)</h3>
-    <pre><code># All files
-curl "https://vault.x1.xyz/index/checksums"
-
-# Filtered by wallet
-curl "https://vault.x1.xyz/index/checksums?pubkey=YourWalletPublicKey"</code></pre>
-
-    <h3>Checksums Response</h3>
-    <pre><code>{
-  "files": [
-    {
-      "cid": "QmXxx...",
-      "filename": "myfile.txt",
-      "size": 1234,
-      "md5": "d41d8cd98f00b204e9800998ecf8427e",
-      "created_at": "2025-02-13T20:25:00.000Z"
-    }
-  ],
-  "count": 1
-}</code></pre>
-    <p><strong>Note:</strong> The MD5 is of the <strong>unencrypted plaintext</strong>, sent via the <code>X-Content-MD5</code> header at upload time. This allows duplicate detection even though each encryption produces different ciphertext (due to random IVs). Clients must compute and send this header — the server cannot derive it from the encrypted content.</p>
+    <pre><code>{"Name":"myfile.txt","Hash":"QmXxx...","Size":"1234"}</code></pre>
     
     <h2>CLI Usage (For Bots & Agents)</h2>
     
@@ -261,9 +287,6 @@ async function upload(keyPath, filename, data) {
     const sig = nacl.sign.detached(Buffer.from(DERIVATION_MSG), keypair.secretKey);
     const aesKey = crypto.createHash('sha256').update(sig).digest();
 
-    // MD5 of plaintext (for duplicate detection)
-    const contentMd5 = crypto.createHash('md5').update(data, 'utf8').digest('hex');
-
     // Encrypt
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv('aes-256-gcm', aesKey, iv);
@@ -283,10 +306,7 @@ async function upload(keyPath, filename, data) {
 
     const resp = await fetch(`${VAULT_URL}/api/v0/add?pin=true`, {
         method: 'POST',
-        headers: {
-            'X-Pubkey': publicKey, 'X-Filename': filename,
-            'X-Content-MD5': contentMd5, ...form.getHeaders()
-        },
+        headers: { 'X-Pubkey': publicKey, 'X-Filename': filename, ...form.getHeaders() },
         body: form
     });
     return JSON.parse((await resp.text()).split('\n')[0]);
@@ -320,28 +340,22 @@ def upload(key_path, filename, data):
     signature = signing_key.sign(DERIVATION_MSG).signature
     aes_key = hashlib.sha256(signature).digest()
     
-    # MD5 of plaintext (for duplicate detection)
-    content_md5 = hashlib.md5(data.encode()).hexdigest()
-
     # Encrypt
     iv = os.urandom(12)
     aesgcm = AESGCM(aes_key)
     ciphertext = aesgcm.encrypt(iv, data.encode(), None)
     combined = base64.b64encode(iv + ciphertext).decode()
-
+    
     # Build payload
     payload = json.dumps({
         'version': 1, 'algorithm': 'AES-256-GCM', 'wallet': public_key,
         'derivationMsg': 'IPFS_ENCRYPTION_KEY_V1', 'data': combined
     })
-
+    
     # Upload
     resp = requests.post(
         f'{VAULT_URL}/api/v0/add?pin=true',
-        headers={
-            'X-Pubkey': public_key, 'X-Filename': filename,
-            'X-Content-MD5': content_md5
-        },
+        headers={'X-Pubkey': public_key, 'X-Filename': filename},
         files={'file': ('encrypted.json', payload)}
     )
     return resp.json()
@@ -375,12 +389,8 @@ def upload(key_path, filename, data):
     }
 
     async upload(content, filename) {
-        const data = new TextEncoder().encode(content);
-
-        // MD5 of plaintext (for duplicate detection)
-        const contentMd5 = await this.md5(data);
-
         const iv = crypto.getRandomValues(new Uint8Array(12));
+        const data = new TextEncoder().encode(content);
         const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, this.derivedKey, data);
         const combined = new Uint8Array(iv.length + encrypted.byteLength);
         combined.set(iv);
@@ -396,10 +406,7 @@ def upload(key_path, filename, data):
         form.append('file', new Blob([payload]));
         const resp = await fetch(`${this.baseUrl}/api/v0/add?pin=true`, {
             method: 'POST',
-            headers: {
-                'X-Pubkey': this.publicKey, 'X-Filename': filename,
-                'X-Content-MD5': contentMd5
-            },
+            headers: { 'X-Pubkey': this.publicKey, 'X-Filename': filename },
             body: form
         });
         return JSON.parse((await resp.text()).split('\n')[0]);
@@ -409,48 +416,13 @@ def upload(key_path, filename, data):
         const resp = await fetch(`https://ipfs.io/ipfs/${cid}`);
         const json = await resp.json();
         if (json.wallet !== this.publicKey) throw new Error('Wrong wallet');
-
+        
         const combined = Uint8Array.from(atob(json.data), c => c.charCodeAt(0));
         const decrypted = await crypto.subtle.decrypt(
             { name: 'AES-GCM', iv: combined.slice(0, 12) },
             this.derivedKey, combined.slice(12)
         );
         return new TextDecoder().decode(decrypted);
-    }
-
-    // Compute MD5 hex digest in browser (no external deps)
-    async md5(data) {
-        // Uses a minimal pure-JS MD5 — or use a library like spark-md5
-        // For production, consider importing a proper MD5 library
-        const msgLen = data.length;
-        const s = [7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,
-                   5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,
-                   4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,
-                   6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21];
-        const K = Array.from({length:64},(_,i)=>Math.floor(2**32*Math.abs(Math.sin(i+1)))>>>0);
-        const pad = new Uint8Array(msgLen+64-((msgLen+8)%64)+8);
-        pad.set(data); pad[msgLen]=0x80;
-        const dv = new DataView(pad.buffer);
-        dv.setUint32(pad.length-8, (msgLen*8)>>>0, true);
-        let [a0,b0,c0,d0] = [0x67452301,0xefcdab89,0x98badcfe,0x10325476];
-        for (let o=0; o<pad.length; o+=64) {
-            const M=Array.from({length:16},(_,j)=>dv.getUint32(o+j*4,true));
-            let [a,b,c,d]=[a0,b0,c0,d0];
-            for (let i=0;i<64;i++){
-                let f,g;
-                if(i<16){f=(b&c)|(~b&d);g=i}
-                else if(i<32){f=(d&b)|(~d&c);g=(5*i+1)%16}
-                else if(i<48){f=b^c^d;g=(3*i+5)%16}
-                else{f=c^(b|~d);g=(7*i)%16}
-                const t=d;d=c;c=b;
-                b=(b+((a+f+K[i]+M[g])>>>0<<s[i]|(a+f+K[i]+M[g])>>>0>>>(32-s[i])))>>>0;
-                a=t;
-            }
-            a0=(a0+a)>>>0;b0=(b0+b)>>>0;c0=(c0+c)>>>0;d0=(d0+d)>>>0;
-        }
-        const r=new DataView(new ArrayBuffer(16));
-        r.setUint32(0,a0,true);r.setUint32(4,b0,true);r.setUint32(8,c0,true);r.setUint32(12,d0,true);
-        return[...new Uint8Array(r.buffer)].map(b=>b.toString(16).padStart(2,'0')).join('');
     }
 }
 
@@ -492,135 +464,6 @@ python3 upload.py /keys/agent-a.env data.json "..."
 # Agent B's files (separate wallet, separate encryption)
 python3 upload.py /keys/agent-b.env data.json "..."</code></pre>
     </div>
-
-    <h2>Backup Client (vault-backup)</h2>
-
-    <div class="section">
-        <p>Smart backup client that <strong>skips unchanged files</strong> using MD5 checksums. Computes MD5 of plaintext before encryption, checks the server index, and only uploads new or modified files.</p>
-    </div>
-
-    <h3>How It Works</h3>
-    <div class="diagram">
-┌────────────────────────────────────────────────────────────────┐
-│                     BACKUP FLOW                                │
-├────────────────────────────────────────────────────────────────┤
-│                                                                │
-│  For each local file:                                          │
-│                                                                │
-│  1. Read file ──► MD5(plaintext) ──► "a1b2c3d4..."            │
-│                                                                │
-│  2. GET /index/checksums?pubkey=...                            │
-│     ┌──────────────────────────────┐                           │
-│     │ server.js  md5:d38de5ec...  │ ◄── already indexed       │
-│     │ config.json md5:a1b2c3d4... │                            │
-│     └──────────────────────────────┘                           │
-│                                                                │
-│  3. Compare local MD5 against server index:                    │
-│     • Match found  ──► SKIP (no upload)                        │
-│     • No match     ──► Encrypt ──► Upload ──► Index            │
-│                                                                │
-│  Result: Only new/changed files are uploaded                   │
-└────────────────────────────────────────────────────────────────┘
-    </div>
-
-    <h3>Installation</h3>
-    <pre><code># Clone and install (tweetnacl + bs58 required)
-cd /path/to/ipfs-web
-npm install
-
-# Store your wallet private key (Base58)
-echo "YourBase58PrivateKey..." > .wallet-key
-chmod 600 .wallet-key</code></pre>
-
-    <h3>Usage</h3>
-    <pre><code># Backup specific files
-node vault-backup.js notes.md config.json data/*.csv
-
-# Backup an entire directory (recursive, skips .git, node_modules, dotfiles)
-node vault-backup.js --dir ~/projects/myapp/
-
-# Dry run — see what would be uploaded without uploading
-node vault-backup.js --dry-run --dir ~/documents/
-
-# Use a different server
-node vault-backup.js --server https://vault.x1.xyz myfile.txt
-
-# Use a different key file
-node vault-backup.js --key ~/.agent-wallet.env myfile.txt</code></pre>
-
-    <h3>Output</h3>
-    <pre><code>Wallet: 2jchoLFV...RbDRy3
-Server: http://127.0.0.1:8772
-
-Remote: 285 files indexed (142 unique names)
-Local:  5 files to process
-
-[1/5] SKIP  notes.md (unchanged, md5:e4de7cc3fc)
-[2/5] UP    config.json → QmXxx...abc (md5:a1b2c3d4e5)
-[3/5] NEW   readme.txt → QmYyy...def (md5:f6g7h8i9j0)
-[4/5] SKIP  data.csv (unchanged, md5:1234567890)
-[5/5] UP    app.js → QmZzz...ghi (md5:k1l2m3n4o5)
-
-Done: 3 uploaded, 2 skipped, 0 failed (of 5)</code></pre>
-    <table>
-        <tr><th>Label</th><th>Meaning</th></tr>
-        <tr><td><code>NEW</code></td><td>File not previously on server — first upload</td></tr>
-        <tr><td><code>UP</code></td><td>File exists but content changed — new version uploaded</td></tr>
-        <tr><td><code>SKIP</code></td><td>File unchanged (same MD5) — no upload needed</td></tr>
-        <tr><td><code>FAIL</code></td><td>Upload error (network, IPFS down, etc.)</td></tr>
-    </table>
-
-    <h3>Dedup via X-Content-MD5</h3>
-    <p>The backup client sends the <code>X-Content-MD5</code> header with every upload. This is the MD5 of the <strong>plaintext before encryption</strong>. The server stores it in the index database.</p>
-    <p>On subsequent runs, the client fetches <code>/index/checksums</code> and compares each local file's MD5 against the server. Since the MD5 is of the plaintext (not the ciphertext), identical files always match — even though each encryption produces different ciphertext due to random IVs.</p>
-    <pre><code>// Client-side dedup logic (simplified)
-const content = fs.readFileSync('myfile.txt');
-const md5 = crypto.createHash('md5').update(content).digest('hex');
-
-const remote = await fetch('/index/checksums?pubkey=...');
-const existing = remote.files.find(f =>
-    f.filename.endsWith('myfile.txt') && f.md5 === md5
-);
-
-if (existing) {
-    console.log('SKIP — unchanged');
-} else {
-    // encrypt, upload with X-Content-MD5 header
-}</code></pre>
-
-    <h3>Integrating Into Your Own Client</h3>
-    <p>Any client (Node.js, Python, Go, etc.) can implement the same dedup pattern:</p>
-    <ol>
-        <li>Compute <code>MD5(plaintext)</code> before encryption</li>
-        <li>Check <code>GET /index/checksums?pubkey=X</code> for matching filename + MD5</li>
-        <li>If match → skip. If no match → encrypt, upload with <code>X-Content-MD5</code> header</li>
-    </ol>
-
-    <pre><code># Python example
-import hashlib, requests
-
-def backup_file(server, pubkey, filepath, aes_key):
-    with open(filepath, 'rb') as f:
-        content = f.read()
-    md5 = hashlib.md5(content).hexdigest()
-
-    # Check server index
-    checksums = requests.get(f'{server}/index/checksums?pubkey={pubkey}').json()
-    filename = os.path.basename(filepath)
-    for f in checksums['files']:
-        clean = f['filename'].split('-', 1)[1] if '-' in f['filename'] else f['filename']
-        if clean == filename and f['md5'] == md5:
-            print(f'SKIP {filename} (unchanged)')
-            return
-
-    # Encrypt and upload (see Python example above)
-    encrypted = encrypt(aes_key, content)
-    resp = requests.post(
-        f'{server}/api/v0/add?pin=true',
-        headers={'X-Pubkey': pubkey, 'X-Filename': filename, 'X-Content-MD5': md5},
-        files={'file': ('encrypted.json', encrypted)}
-    )
-    print(f'UP {filename} → {resp.json()["Hash"]}')</code></pre>
 
     <h2>Security Model</h2>
     

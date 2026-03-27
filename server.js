@@ -292,7 +292,9 @@ async function handleIpfsAdd(req, res) {
         proxyRes.on('data', chunk => data += chunk);
         proxyRes.on('end', () => {
             try {
-                const result = JSON.parse(data);
+                // IPFS returns NDJSON - take the last line (final result with Hash)
+                const lines = data.trim().split("\n").filter(l => l);
+                const result = JSON.parse(lines[lines.length - 1]);
                 
                 // Index the file if pubkey provided
                 if (pubkey && result.Hash) {

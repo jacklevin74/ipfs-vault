@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPFS File Browser</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #0d1117;
+            color: #c9d1d9;
+        }
+        h1 { color: #58a6ff; margin-bottom: 10px; }
+        .subtitle { color: #8b949e; margin-bottom: 30px; }
+        h2 { color: #8b949e; font-size: 1.1em; margin-top: 30px; margin-bottom: 15px; }
+        a { color: #58a6ff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        
+        .nav { margin-bottom: 20px; }
+        .nav a { margin-right: 20px; color: #8b949e; }
+        .nav a:hover { color: #58a6ff; }
+        
+        .tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #30363d;
+        }
+        .tab {
+            padding: 12px 24px;
+            cursor: pointer;
+            color: #8b949e;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+            transition: all 0.2s;
+        }
+        .tab:hover { color: #c9d1d9; }
+        .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+        
+        .section {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .wallet-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px 20px;
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .wallet-info { display: flex; align-items: center; gap: 12px; }
+        .wallet-address { font-family: monospace; font-size: 14px; color: #58a6ff; }
+        .wallet-status { font-size: 13px; color: #8b949e; }
+        .wallet-status.ready { color: #7ee787; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: #f85149; }
+        .dot.connected { background: #7ee787; }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #c9d1d9;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        
+        button {
+            background: #238636;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        button:hover { background: #2ea043; }
+        button:disabled { background: #30363d; cursor: not-allowed; }
+        button.secondary { background: #21262d; border: 1px solid #30363d; }
+        button.secondary:hover { background: #30363d; }
+        button.disconnect {
+            background: transparent;
+            border: 1px solid #f85149;
+            color: #f85149;
+            padding: 8px 16px;
+            font-size: 13px;
+        }
+        button.disconnect:hover { background: rgba(248, 81, 73, 0.1); }
+        
+        .row { display: flex; gap: 10px; align-items: center; margin-bottom: 15px; }
+        .row input[type="text"] { flex: 1; }
+        
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 15px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-family: monospace;
+            font-size: 14px;
+            flex-wrap: wrap;
+        }
+        .breadcrumb span { color: #8b949e; }
+        .breadcrumb a { color: #58a6ff; cursor: pointer; }
+        
+        .dir-list { margin-top: 15px; }
+        
+        .dir-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 15px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            transition: border-color 0.2s;
+        }
+        .dir-item:hover { border-color: #58a6ff; }
+        .dir-item.clickable { cursor: pointer; }
+        
+        .item-icon {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            font-size: 20px;
+        }
+        
+        .item-info { flex: 1; min-width: 0; }
+        .item-name { color: #c9d1d9; font-weight: 500; word-break: break-all; }
+        .item-name.dir { color: #58a6ff; }
+        .item-meta { color: #8b949e; font-size: 12px; margin-top: 4px; font-family: monospace; }
+        
+        .item-actions { display: flex; gap: 8px; flex-shrink: 0; }
+        .item-actions button { margin: 0; padding: 6px 12px; font-size: 12px; }
+        
+        .file-count {
+            background: #30363d;
+            color: #8b949e;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            margin-left: 8px;
+        }
+        
+        .preview-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            padding: 40px;
+            overflow: auto;
+        }
+        .preview-modal.show { display: flex; align-items: flex-start; justify-content: center; }
+        .preview-content {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            max-width: 900px;
+            width: 100%;
+            max-height: 90vh;
+            overflow: auto;
+        }
+        .preview-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            border-bottom: 1px solid #30363d;
+            position: sticky;
+            top: 0;
+            background: #161b22;
+        }
+        .preview-title { color: #58a6ff; font-weight: 600; word-break: break-all; }
+        .preview-close {
+            background: transparent;
+            border: none;
+            color: #8b949e;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0 8px;
+            margin: 0;
+        }
+        .preview-close:hover { color: #c9d1d9; }
+        .preview-body {
+            padding: 20px;
+            font-family: monospace;
+            font-size: 14px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: #c9d1d9;
+        }
+        .preview-body.error { color: #f85149; }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #8b949e;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #8b949e;
+        }
+        .loading::after {
+            content: '';
+            animation: dots 1.5s infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+        
+        .hidden { display: none !important; }
+        
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        @media (max-width: 600px) {
+            body { padding: 12px; }
+            .wallet-bar { flex-wrap: wrap; gap: 10px; }
+            .row { flex-direction: column; }
+            .row input { width: 100%; }
+            .row button { width: 100%; margin-top: 8px; }
+            .dir-item { flex-wrap: wrap; }
+            .item-actions { width: 100%; margin-top: 10px; padding-top: 10px; border-top: 1px solid #30363d; }
+            .item-actions button { flex: 1; }
+            .tabs { overflow-x: auto; }
+            .tab { white-space: nowrap; padding: 10px 16px; font-size: 14px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="nav">
+        <a href="crypto.html">← Encrypted Storage</a>
+        <a href="doc.html">Documentation</a>
+    </div>
+    
+    <h1>📂 IPFS File Browser</h1>
+    <p class="subtitle">Browse your encrypted files and IPFS directories</p>
+    
+    <!-- Wallet Bar -->
+    <div class="wallet-bar">
+        <div class="wallet-info">
+            <div class="dot" id="statusDot"></div>
+            <div>
+                <div class="wallet-address" id="walletAddress">Not connected</div>
+                <div class="wallet-status" id="walletStatus">Connect wallet to view & decrypt files</div>
+            </div>
+        </div>
+        <div>
+            <button id="connectBtn" onclick="connectWallet()">Connect Wallet</button>
+            <button id="disconnectBtn" class="disconnect hidden" onclick="disconnectWallet()">Disconnect</button>
+        </div>
+    </div>
+    
+    <!-- Tabs -->
+    <div class="tabs">
+        <div class="tab active" onclick="switchTab('my-files')">📁 My Files</div>
+        <div class="tab" onclick="switchTab('browse-cid')">🔍 Browse CID</div>
+    </div>
+    
+    <!-- Tab: My Files -->
+    <div id="tab-my-files" class="tab-content active">
+        <div class="section" id="myFilesSection">
+            <div id="myFilesPrompt" class="empty-state">
+                Connect your wallet to view your encrypted files
+            </div>
+            
+            <div id="myFilesContent" class="hidden">
+                <!-- Breadcrumb -->
+                <div id="myFilesBreadcrumb" class="breadcrumb">
+                    <span>📂</span>
+                    <a onclick="navigateMyFiles('')">root</a>
+                </div>
+                
+                <!-- Contents -->
+                <div id="myFilesListing" class="dir-list">
+                    <div class="loading">Loading</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Tab: Browse CID -->
+    <div id="tab-browse-cid" class="tab-content">
+        <div class="section">
+            <h2>🔍 Enter Directory CID</h2>
+            <div class="row">
+                <input type="text" id="dirCid" placeholder="QmXxx... or bafyxxx... (IPFS directory CID)">
+                <button onclick="browseDirectory()">Browse</button>
+            </div>
+            
+            <!-- Breadcrumb -->
+            <div id="cidBreadcrumb" class="breadcrumb hidden">
+                <span>📂</span>
+                <span id="cidBreadcrumbPath"></span>
+            </div>
+            
+            <!-- Directory Contents -->
+            <div id="cidContents" class="dir-list">
+                <div class="empty-state">Enter a directory CID above to browse its contents</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Preview Modal -->
+    <div id="previewModal" class="preview-modal" onclick="closePreview(event)">
+        <div class="preview-content" onclick="event.stopPropagation()">
+            <div class="preview-header">
+                <span class="preview-title" id="previewTitle">filename.txt</span>
+                <button class="preview-close" onclick="closePreview()">&times;</button>
+            </div>
+            <div class="preview-body" id="previewBody">Loading...</div>
+        </div>
+    </div>
+
+    <script>
+        let wallet = null;
+        let publicKey = null;
+        let derivedKey = null;
+        const IPFS_API = '/api/v0';
+        const INDEX_API = '/index';
+        const DERIVATION_MSG = 'IPFS_ENCRYPTION_KEY_V1';
+        
+        // My files state
+        let myFiles = [];
+        let currentMyFilesPath = '';
+        
+        // CID browse state
+        let cidPath = [];
+        let rootCid = null;
+        
+        window.addEventListener('load', async () => {
+            await new Promise(r => setTimeout(r, 500));
+            await restoreSession();
+            
+            // Check URL params
+            const params = new URLSearchParams(window.location.search);
+            const cid = params.get('cid');
+            if (cid) {
+                switchTab('browse-cid');
+                document.getElementById('dirCid').value = cid;
+                browseDirectory();
+            }
+        });
+        
+        // Tab switching
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            
+            document.querySelector(`.tab-content#tab-${tabId}`).classList.add('active');
+            document.querySelectorAll('.tab')[tabId === 'my-files' ? 0 : 1].classList.add('active');
+        }
+        
+        // Wallet detection
+        function detectWallet() {
+            if (window.x1_wallet) return { provider: window.x1_wallet, type: 'x1', name: 'X1 Wallet' };
+            if (window.x1Solana) return { provider: window.x1Solana, type: 'x1', name: 'X1 Wallet' };
+            if (window.x1) return { provider: window.x1, type: 'x1', name: 'X1 Wallet' };
+            if (window.phantom?.solana) return { provider: window.phantom.solana, type: 'phantom', name: 'Phantom' };
+            if (window.solana?.isPhantom) return { provider: window.solana, type: 'phantom', name: 'Phantom' };
+            if (window.backpack) return { provider: window.backpack, type: 'backpack', name: 'Backpack' };
+            return null;
+        }
+        
+        async function restoreSession() {
+            const detected = detectWallet();
+            if (!detected) return;
+            
+            document.getElementById('connectBtn').textContent = `Connect ${detected.name}`;
+            
+            if (detected.provider.publicKey) {
+                wallet = detected.provider;
+                publicKey = detected.provider.publicKey.toString();
+                updateStatus('Restoring session...', false);
+                try {
+                    await deriveKey();
+                    showConnected();
+                    loadMyFiles();
+                } catch (err) {
+                    updateStatus('Click Connect to decrypt files', false);
+                }
+            }
+        }
+        
+        async function connectWallet() {
+            const detected = detectWallet();
+            if (!detected) {
+                alert('No wallet detected. Install X1 Wallet, Phantom, or Backpack.');
+                return;
+            }
+            
+            try {
+                updateStatus('Connecting...', false);
+                wallet = detected.provider;
+                const resp = await wallet.connect();
+                publicKey = (resp?.publicKey || wallet.publicKey).toString();
+                
+                updateStatus('Deriving encryption key...', false);
+                await deriveKey();
+                showConnected();
+                loadMyFiles();
+            } catch (err) {
+                updateStatus('Failed: ' + err.message, true);
+            }
+        }
+        
+        async function deriveKey() {
+            const sig = await wallet.signMessage(new TextEncoder().encode(DERIVATION_MSG), 'utf8');
+            let sigBytes = sig instanceof Uint8Array ? sig : 
+                          sig.signature ? new Uint8Array(typeof sig.signature === 'string' ? 
+                              [...atob(sig.signature)].map(c => c.charCodeAt(0)) : sig.signature) :
+                          [...atob(sig)].map(c => c.charCodeAt(0));
+            
+            const hash = await crypto.subtle.digest('SHA-256', sigBytes);
+            derivedKey = await crypto.subtle.importKey('raw', hash, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+        }
+        
+        function disconnectWallet() {
+            if (wallet?.disconnect) wallet.disconnect();
+            wallet = null;
+            publicKey = null;
+            derivedKey = null;
+            myFiles = [];
+            showDisconnected();
+        }
+        
+        function showConnected() {
+            document.getElementById('walletAddress').textContent = publicKey.slice(0, 8) + '...' + publicKey.slice(-6);
+            document.getElementById('statusDot').classList.add('connected');
+            document.getElementById('walletStatus').textContent = '🔑 Ready to decrypt';
+            document.getElementById('walletStatus').classList.add('ready');
+            document.getElementById('connectBtn').classList.add('hidden');
+            document.getElementById('disconnectBtn').classList.remove('hidden');
+            document.getElementById('myFilesPrompt').classList.add('hidden');
+            document.getElementById('myFilesContent').classList.remove('hidden');
+        }
+        
+        function showDisconnected() {
+            document.getElementById('walletAddress').textContent = 'Not connected';
+            document.getElementById('statusDot').classList.remove('connected');
+            document.getElementById('walletStatus').textContent = 'Connect wallet to view & decrypt files';
+            document.getElementById('walletStatus').classList.remove('ready');
+            document.getElementById('connectBtn').classList.remove('hidden');
+            document.getElementById('disconnectBtn').classList.add('hidden');
+            document.getElementById('myFilesPrompt').classList.remove('hidden');
+            document.getElementById('myFilesContent').classList.add('hidden');
+        }
+        
+        function updateStatus(msg, isError) {
+            const el = document.getElementById('walletStatus');
+            el.textContent = msg;
+            el.style.color = isError ? '#f85149' : '#8b949e';
+        }
+        
+        // ============ MY FILES TAB ============
+        
+        async function loadMyFiles() {
+            const listEl = document.getElementById('myFilesListing');
+            listEl.innerHTML = '<div class="loading">Loading</div>';
+            
+            try {
+                const resp = await fetch(`${INDEX_API}/files?pubkey=${publicKey}`);
+                const data = await resp.json();
+                
+                if (data.files && data.files.length > 0) {
+                    myFiles = data.files;
+                    renderMyFiles('');
+                } else {
+                    listEl.innerHTML = '<div class="empty-state">No files yet. Upload your first encrypted file!</div>';
+                }
+            } catch (err) {
+                listEl.innerHTML = `<div class="empty-state" style="color:#f85149;">Error: ${err.message}</div>`;
+            }
+        }
+        
+        function renderMyFiles(path) {
+            currentMyFilesPath = path;
+            const listEl = document.getElementById('myFilesListing');
+            
+            // Update breadcrumb
+            updateMyFilesBreadcrumb(path);
+            
+            // Get files at this path level
+            const prefix = path ? path + '/' : '';
+            const items = new Map(); // name -> { type: 'dir'|'file', data }
+            
+            for (const file of myFiles) {
+                // Get the display filename (strip CID prefix if present)
+                let filename = file.filename || '';
+                filename = filename.replace(/^[A-Za-z0-9]{8}-/, '');
+                
+                // Skip if not under current path
+                if (path && !filename.startsWith(prefix)) continue;
+                if (!path && filename.includes('/')) {
+                    // It's in a subdirectory - show the directory
+                    const dirName = filename.split('/')[0];
+                    if (!items.has(dirName)) {
+                        items.set(dirName, { type: 'dir', name: dirName, count: 0 });
+                    }
+                    items.get(dirName).count++;
+                    continue;
+                }
+                if (path) {
+                    // We're in a subdirectory
+                    const relativePath = filename.slice(prefix.length);
+                    if (relativePath.includes('/')) {
+                        // Nested subdirectory
+                        const dirName = relativePath.split('/')[0];
+                        if (!items.has(dirName)) {
+                            items.set(dirName, { type: 'dir', name: dirName, count: 0 });
+                        }
+                        items.get(dirName).count++;
+                        continue;
+                    }
+                    // It's a file at this level
+                    items.set(relativePath, { type: 'file', name: relativePath, data: file });
+                } else if (!filename.includes('/')) {
+                    // Root level file
+                    items.set(filename, { type: 'file', name: filename, data: file });
+                }
+            }
+            
+            if (items.size === 0) {
+                listEl.innerHTML = '<div class="empty-state">No files at this level</div>';
+                return;
+            }
+            
+            // Sort: directories first, then files
+            const sorted = [...items.values()].sort((a, b) => {
+                if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+                return a.name.localeCompare(b.name);
+            });
+            
+            listEl.innerHTML = sorted.map(item => {
+                if (item.type === 'dir') {
+                    const dirPath = path ? `${path}/${item.name}` : item.name;
+                    return `
+                        <div class="dir-item clickable" onclick="navigateMyFiles('${escapeAttr(dirPath)}')">
+                            <div class="item-icon">📁</div>
+                            <div class="item-info">
+                                <div class="item-name dir">${escapeHtml(item.name)}<span class="file-count">${item.count}</span></div>
+                            </div>
+                            <div class="item-actions">
+                                <button class="secondary" onclick="event.stopPropagation();">Enter</button>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    const f = item.data;
+                    return `
+                        <div class="dir-item">
+                            <div class="item-icon">${getFileIcon(item.name)}</div>
+                            <div class="item-info">
+                                <div class="item-name">${escapeHtml(item.name)}</div>
+                                <div class="item-meta">${f.cid.slice(0, 12)}...${f.cid.slice(-6)} • ${formatSize(f.size)}</div>
+                            </div>
+                            <div class="item-actions">
+                                <button onclick="viewFile('${f.cid}', '${escapeAttr(item.name)}')">View</button>
+                                <button class="secondary" onclick="downloadFile('${f.cid}', '${escapeAttr(item.name)}')">Download</button>
+                            </div>
+                        </div>
+                    `;
+                }
+            }).join('');
+        }
+        
+        function navigateMyFiles(path) {
+            renderMyFiles(path);
+        }
+        
+        function updateMyFilesBreadcrumb(path) {
+            const el = document.getElementById('myFilesBreadcrumb');
+            let html = '<span>📂</span> <a onclick="navigateMyFiles(\'\')">root</a>';
+            
+            if (path) {
+                const parts = path.split('/');
+                let cumPath = '';
+                for (const part of parts) {
+                    cumPath = cumPath ? `${cumPath}/${part}` : part;
+                    html += ` <span>/</span> <a onclick="navigateMyFiles('${escapeAttr(cumPath)}')">${escapeHtml(part)}</a>`;
+                }
+            }
+            
+            el.innerHTML = html;
+        }
+        
+        // ============ BROWSE CID TAB ============
+        
+        async function browseDirectory(cid, path) {
+            const targetCid = cid || document.getElementById('dirCid').value.trim();
+            if (!targetCid) {
+                alert('Enter a CID');
+                return;
+            }
+            
+            if (!cid) {
+                rootCid = targetCid;
+                cidPath = [];
+            }
+            
+            const contentsEl = document.getElementById('cidContents');
+            contentsEl.innerHTML = '<div class="loading">Loading directory</div>';
+            
+            try {
+                const resp = await fetch(`${IPFS_API}/ls?arg=${targetCid}`, { method: 'POST' });
+                const data = await resp.json();
+                
+                if (data.Objects && data.Objects.length > 0 && data.Objects[0].Links) {
+                    const links = data.Objects[0].Links;
+                    updateCidBreadcrumb(path || []);
+                    
+                    if (links.length === 0) {
+                        contentsEl.innerHTML = '<div class="empty-state">Empty directory</div>';
+                    } else {
+                        contentsEl.innerHTML = links.map(link => {
+                            const isDir = link.Type === 1 || (link.Size === 0 && !link.Name.includes('.'));
+                            const icon = isDir ? '📁' : getFileIcon(link.Name);
+                            return `
+                                <div class="dir-item ${isDir ? 'clickable' : ''}" 
+                                     ${isDir ? `onclick="navigateCidInto('${link.Hash}', '${escapeAttr(link.Name)}')"` : ''}>
+                                    <div class="item-icon">${icon}</div>
+                                    <div class="item-info">
+                                        <div class="item-name ${isDir ? 'dir' : ''}">${escapeHtml(link.Name)}</div>
+                                        <div class="item-meta">${link.Hash.slice(0, 12)}...${link.Hash.slice(-6)} • ${formatSize(link.Size)}</div>
+                                    </div>
+                                    <div class="item-actions">
+                                        ${isDir ? 
+                                            `<button class="secondary" onclick="event.stopPropagation(); copyText('${link.Hash}')">Copy CID</button>` :
+                                            `<button onclick="event.stopPropagation(); viewFile('${link.Hash}', '${escapeAttr(link.Name)}')">View</button>
+                                             <button class="secondary" onclick="event.stopPropagation(); downloadFile('${link.Hash}', '${escapeAttr(link.Name)}')">Download</button>`
+                                        }
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+                    }
+                } else {
+                    contentsEl.innerHTML = '<div class="empty-state">This CID is not a directory. Try viewing it as a file.</div>';
+                }
+            } catch (err) {
+                contentsEl.innerHTML = `<div class="empty-state" style="color: #f85149;">Error: ${err.message}</div>`;
+            }
+        }
+        
+        function navigateCidInto(cid, name) {
+            cidPath.push({ cid, name });
+            browseDirectory(cid, cidPath);
+        }
+        
+        function navigateCidToIndex(idx) {
+            if (idx === -1) {
+                cidPath = [];
+                browseDirectory(rootCid, []);
+            } else {
+                cidPath = cidPath.slice(0, idx + 1);
+                browseDirectory(cidPath[idx].cid, cidPath);
+            }
+        }
+        
+        function updateCidBreadcrumb(path) {
+            const el = document.getElementById('cidBreadcrumb');
+            const pathEl = document.getElementById('cidBreadcrumbPath');
+            
+            if (!rootCid) {
+                el.classList.add('hidden');
+                return;
+            }
+            
+            el.classList.remove('hidden');
+            let html = `<a onclick="navigateCidToIndex(-1)">${rootCid.slice(0, 8)}...</a>`;
+            path.forEach((p, i) => {
+                html += ` <span>/</span> <a onclick="navigateCidToIndex(${i})">${escapeHtml(p.name)}</a>`;
+            });
+            pathEl.innerHTML = html;
+        }
+        
+        // ============ FILE OPERATIONS ============
+        
+        async function viewFile(cid, name) {
+            const modal = document.getElementById('previewModal');
+            const title = document.getElementById('previewTitle');
+            const body = document.getElementById('previewBody');
+            
+            title.textContent = name;
+            body.textContent = 'Loading...';
+            body.classList.remove('error');
+            modal.classList.add('show');
+            
+            try {
+                const resp = await fetch(`${IPFS_API}/cat?arg=${cid}`, { method: 'POST' });
+                const text = await resp.text();
+                
+                // Try to parse as encrypted JSON
+                try {
+                    const pkg = JSON.parse(text);
+                    if (pkg.version === 1 && pkg.algorithm === 'AES-256-GCM' && pkg.data) {
+                        if (!derivedKey) {
+                            body.textContent = '🔒 Encrypted file\n\nConnect your wallet to decrypt.';
+                            body.classList.add('error');
+                            return;
+                        }
+                        
+                        if (pkg.wallet !== publicKey) {
+                            body.textContent = '🔒 Encrypted with different wallet\n\nThis file was encrypted by:\n' + pkg.wallet + '\n\nYour wallet:\n' + publicKey;
+                            body.classList.add('error');
+                            return;
+                        }
+                        
+                        body.textContent = 'Decrypting...';
+                        const combined = Uint8Array.from(atob(pkg.data), c => c.charCodeAt(0));
+                        const decrypted = await crypto.subtle.decrypt(
+                            { name: 'AES-GCM', iv: combined.slice(0, 12) },
+                            derivedKey,
+                            combined.slice(12)
+                        );
+                        body.textContent = new TextDecoder().decode(decrypted);
+                        return;
+                    }
+                } catch (e) {}
+                
+                body.textContent = text;
+            } catch (err) {
+                body.textContent = 'Error: ' + err.message;
+                body.classList.add('error');
+            }
+        }
+        
+        async function downloadFile(cid, name) {
+            try {
+                const resp = await fetch(`${IPFS_API}/cat?arg=${cid}`, { method: 'POST' });
+                let content = await resp.text();
+                
+                // Try to decrypt
+                try {
+                    const pkg = JSON.parse(content);
+                    if (pkg.version === 1 && pkg.algorithm === 'AES-256-GCM' && derivedKey && pkg.wallet === publicKey) {
+                        const combined = Uint8Array.from(atob(pkg.data), c => c.charCodeAt(0));
+                        const decrypted = await crypto.subtle.decrypt(
+                            { name: 'AES-GCM', iv: combined.slice(0, 12) },
+                            derivedKey,
+                            combined.slice(12)
+                        );
+                        content = new TextDecoder().decode(decrypted);
+                    }
+                } catch (e) {}
+                
+                const blob = new Blob([content], { type: 'application/octet-stream' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = name;
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                alert('Download failed: ' + err.message);
+            }
+        }
+        
+        function closePreview(e) {
+            if (e && e.target !== e.currentTarget) return;
+            document.getElementById('previewModal').classList.remove('show');
+        }
+        
+        // ============ UTILITIES ============
+        
+        function getFileIcon(name) {
+            const ext = (name || '').split('.').pop().toLowerCase();
+            const icons = {
+                md: '📝', txt: '📄', json: '📋', js: '⚡', py: '🐍', sh: '🔧',
+                jpg: '🖼️', jpeg: '🖼️', png: '🖼️', gif: '🖼️', webp: '🖼️',
+                mp4: '🎬', mp3: '🎵', pdf: '📕', html: '🌐', css: '🎨',
+                env: '🔐', key: '🔑', pem: '🔑'
+            };
+            return icons[ext] || '📄';
+        }
+        
+        function copyText(text) {
+            navigator.clipboard.writeText(text);
+            const btn = event.target;
+            const orig = btn.textContent;
+            btn.textContent = 'Copied!';
+            setTimeout(() => btn.textContent = orig, 1500);
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+        
+        function escapeAttr(text) {
+            return (text || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        }
+        
+        function formatSize(bytes) {
+            if (!bytes || bytes === 0) return '—';
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+        
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closePreview();
+        });
+    </script>
+</body>
+</html>
